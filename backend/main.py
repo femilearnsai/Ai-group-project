@@ -16,12 +16,12 @@ import sys
 from pathlib import Path
 
 # Add parent directory to path to import rag_engine
-sys.path.append(str(Path(__file__).parent.parent))
+# sys.path.append(str(Path(__file__).parent.parent))
 
 # Global RAG engine instance
-rag_engine: Optional[RAGEngine] = None
+# rag_engine: Optional[RAGEngine] = None
 
-# Session storage (in production, use Redis or database)
+# Session storage (to use database in production)
 sessions: Dict[str, Dict[str, Any]] = {}
 
 
@@ -61,7 +61,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=["*"],  # specify exact origins in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,7 +71,7 @@ app.add_middleware(
 # Pydantic models
 class ChatRequest(BaseModel):
     """Request model for chat endpoint"""
-    message: str = Field(..., description="User message", min_length=1)
+    message: str = Field(..., description="User message", min_length=5)
     session_id: Optional[str] = Field(
         None, description="Session ID for conversation continuity")
 
