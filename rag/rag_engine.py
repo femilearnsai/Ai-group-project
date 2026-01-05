@@ -393,7 +393,7 @@ class RAGEngine:
                     result.append({"role": role, "content": content})
 
             return result
-        except:
+        except Exception:
             return []
 
 
