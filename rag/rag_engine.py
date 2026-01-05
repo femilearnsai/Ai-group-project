@@ -3,7 +3,6 @@ RAG Engine for Policy Document Question Answering
 Uses LangChain for document processing and LangGraph for agentic retrieval
 """
 
-import os
 from typing import List, Dict, Any, TypedDict, Annotated, Union, cast, Optional
 from pathlib import Path
 
