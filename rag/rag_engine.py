@@ -1,5 +1,5 @@
 """
-RAG Engine for Policy Document Question Answering
+Nigerian Tax Reform Bills Document Question Answering
 Uses LangChain for document processing and LangGraph for agentic retrieval
 """
 
