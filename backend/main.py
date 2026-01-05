@@ -249,14 +249,19 @@ async def clear_session_history(session_id: str):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Reset message count
+    # Reset message count (session metadata) but note this does not clear LangGraph memory
     sessions[session_id]["message_count"] = 0
     sessions[session_id]["last_activity"] = datetime.now().isoformat()
 
     # Note: LangGraph's MemorySaver doesn't have a direct clear method
     # In production, you'd want to implement a custom checkpointer with clear functionality
 
-    return {"message": f"Session {session_id} history cleared"}
+    return {
+        "message": f"Session {session_id} metadata reset; underlying conversation history may still exist",
+        "session_id": session_id,
+        "history_cleared": False,
+        "note": "Only the session's message count and last_activity were reset; LangGraph MemorySaver history was not cleared."
+    }
 
 
 @app.post("/reload-documents")
