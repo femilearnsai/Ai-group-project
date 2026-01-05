@@ -1,7 +1,6 @@
 """
-FastAPI Backend for RAG-powered Policy Assistant
+FastAPI Backend for Nigerian Tax Reform Bills Q&A Assistant
 Provides RESTful API endpoints for the frontend
-Handles session management and connects to the RAG engine
 """
 
 from rag.rag_engine import RAGEngine
@@ -11,41 +10,68 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from contextlib import asynccontextmanager
 import uuid
 import sys
 from pathlib import Path
 
 # Add parent directory to path to import rag_engine
-sys.path.append(str(Path(__file__).parent.parent))
+# sys.path.append(str(Path(__file__).parent.parent))
+
+# Global RAG engine instance
+# rag_engine: Optional[RAGEngine] = None
+
+# Session storage (to use database in production)
+sessions: Dict[str, Dict[str, Any]] = {}
 
 
-# Initialize FastAPI app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events
+    """
+    # Startup
+    global rag_engine
+
+    print("Starting up Policy Assistant API...")
+    print("Initializing RAG Engine...")
+
+    try:
+        rag_engine = RAGEngine()
+        rag_engine.initialize(force_reload=False)
+        print("RAG Engine initialized successfully!")
+    except Exception as e:
+        print(f"Error initializing RAG engine: {e}")
+        print("API will start but RAG functionality will be unavailable")
+
+    yield
+
+    # Shutdown
+    print("Shutting down Policy Assistant API...")
+
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Policy Assistant API",
     description="AI-powered assistant for Nigerian tax and revenue policy documents",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=["*"],  # specify exact origins in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global RAG engine instance
-rag_engine: Optional[RAGEngine] = None
-
-# Session storage (in production, use Redis or database)
-sessions: Dict[str, Dict[str, Any]] = {}
-
 
 # Pydantic models
 class ChatRequest(BaseModel):
     """Request model for chat endpoint"""
-    message: str = Field(..., description="User message", min_length=1)
+    message: str = Field(..., description="User message", min_length=5)
     session_id: Optional[str] = Field(
         None, description="Session ID for conversation continuity")
 
@@ -81,30 +107,6 @@ class HealthResponse(BaseModel):
     status: str
     message: str
     rag_initialized: bool
-
-
-# Startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    """Initialize RAG engine on startup"""
-    global rag_engine
-
-    print("Starting up Policy Assistant API...")
-    print("Initializing RAG Engine...")
-
-    try:
-        rag_engine = RAGEngine()
-        rag_engine.initialize(force_reload=False)
-        print("RAG Engine initialized successfully!")
-    except Exception as e:
-        print(f"Error initializing RAG engine: {e}")
-        print("API will start but RAG functionality will be unavailable")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    print("Shutting down Policy Assistant API...")
 
 
 # API Endpoints
