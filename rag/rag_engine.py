@@ -157,7 +157,6 @@ class RAGEngine:
         """
         messages = state["messages"]
         last_msg = messages[-1] if messages else None
-        last_message = str(last_msg.content) if last_msg else ""
 
         # Create a prompt to decide if retrieval is needed
         decision_prompt = ChatPromptTemplate.from_messages([
