@@ -15,7 +15,7 @@ from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableConfig
+from langchain_core.runnables import RunnableConfig
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
