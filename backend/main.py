@@ -71,7 +71,7 @@ app.add_middleware(
 # Pydantic models
 class ChatRequest(BaseModel):
     """Request model for chat endpoint"""
-    message: str = Field(..., description="User message", min_length=5)
+    message: str = Field(..., description="User message", min_length=1)
     session_id: Optional[str] = Field(
         None, description="Session ID for conversation continuity")
 
@@ -103,6 +103,9 @@ class ConversationHistory(BaseModel):
     """Conversation history model"""
     session_id: str
     messages: List[Dict[str, str]]
+    created_at: str
+    message_count: int
+    last_activity: str
 
 
 class HealthResponse(BaseModel):
@@ -237,10 +240,15 @@ async def get_conversation_history(session_id: str):
 
     try:
         messages = rag_engine.get_conversation_history(session_id=session_id)
+        info = sessions[session_id]
 
         return ConversationHistory(
             session_id=session_id,
-            messages=messages
+            messages=messages,
+            created_at=info["created_at"],
+            message_count=info["message_count"],
+            last_activity=info.get("last_activity", 
+            info["created_at"])
         )
 
     except Exception as e:
