@@ -68,5 +68,5 @@ frontend/.cache/
 ########################
 *.pem
 *.key
-
-backend/rag/chroma_db/**
+.venv
+*__pycache__/*
