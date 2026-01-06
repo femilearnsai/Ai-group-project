@@ -3,7 +3,7 @@ FastAPI Backend for Nigerian Tax Reform Bills Q&A Assistant
 Provides RESTful API endpoints for the frontend
 """
 
-from rag.rag_engine import RAGEngine
+from .rag.rag_engine import RAGEngine
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

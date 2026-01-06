@@ -69,4 +69,4 @@ frontend/.cache/
 *.pem
 *.key
 .venv
-*__pycache__/*
+*__pycache__*
