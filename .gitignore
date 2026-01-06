@@ -31,7 +31,7 @@ ENV/
 .env.local
 
 # Vector Database
-rag/chroma_db/
+*chroma_db/
 *.db
 *.sqlite
 
