@@ -1,66 +1,63 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv*
-
-# Environment variables
+########################
+# General
+########################
+.DS_Store
+Thumbs.db
 .env
-.env.local
+.env.*
+*.log
 
-# Vector Database
-rag/chroma_db/
-*.db
-*.sqlite
+########################
+# Python / FastAPI
+########################
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+backend/venv/
+backend/.venv/
+backend/env/
+backend/.env
+backend/.env.*
 
-# IDEs
+########################
+# FastAPI / Uvicorn
+########################
+backend/*.db
+backend/*.sqlite3
+backend/uploads/
+backend/staticfiles/
+
+########################
+# Node / React
+########################
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.env
+frontend/.env.*
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/.cache/
+
+########################
+# IDE / Editor
+########################
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-.DS_Store
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-*.tmp
-*.bak
-temp/
-
-# OS
-Thumbs.db
-
-
+########################
+# OS / Misc
+########################
+*.pem
+*.key

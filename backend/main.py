@@ -24,20 +24,18 @@ from pathlib import Path
 # Session storage (to use database in production)
 sessions: Dict[str, Dict[str, Any]] = {}
 
+rag_engine = RAGEngine()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events
     """
-    # Startup
-    global rag_engine
 
     print("Starting up Policy Assistant API...")
     print("Initializing RAG Engine...")
 
     try:
-        rag_engine = RAGEngine()
         rag_engine.initialize(force_reload=False)
         print("RAG Engine initialized successfully!")
     except Exception as e:
