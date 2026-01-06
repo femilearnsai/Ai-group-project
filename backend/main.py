@@ -81,6 +81,8 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="AI assistant response")
     session_id: str = Field(...,
                             description="Session ID for this conversation")
+    session_title: str = Field(...,
+                               description="Generated title for this session")
     sources: List[Dict[str, Any]] = Field(
         default_factory=list, description="Source documents referenced")
     used_retrieval: bool = Field(...,
@@ -91,6 +93,7 @@ class ChatResponse(BaseModel):
 class SessionInfo(BaseModel):
     """Session information model"""
     session_id: str
+    title: str
     created_at: str
     message_count: int
     last_activity: str
@@ -148,11 +151,15 @@ async def chat(request: ChatRequest):
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
 
+    # Track if this is a new session
+    is_new_session = session_id not in sessions
+
     # Update session info
-    if session_id not in sessions:
+    if is_new_session:
         sessions[session_id] = {
             "created_at": datetime.now().isoformat(),
-            "message_count": 0
+            "message_count": 0,
+            "title": "New Conversation"  # Default title
         }
 
     sessions[session_id]["message_count"] += 1
@@ -162,9 +169,17 @@ async def chat(request: ChatRequest):
         # Get response from RAG engine
         result = rag_engine.chat(request.message, session_id=session_id)
 
+        # Generate title for new sessions after first message
+        if is_new_session:
+            title = rag_engine.generate_session_title(session_id=session_id)
+            sessions[session_id]["title"] = title
+
+        session_title = sessions[session_id].get("title", "New Conversation")
+
         return ChatResponse(
             response=result["response"],
             session_id=session_id,
+            session_title=session_title,
             sources=result.get("sources", []),
             used_retrieval=result.get("used_retrieval", False),
             timestamp=datetime.now().isoformat()
@@ -183,6 +198,7 @@ async def list_sessions():
     return [
         SessionInfo(
             session_id=session_id,
+            title=info.get("title", "New Conversation"),
             created_at=info["created_at"],
             message_count=info["message_count"],
             last_activity=info.get("last_activity", info["created_at"])
@@ -200,6 +216,7 @@ async def get_session(session_id: str):
     info = sessions[session_id]
     return SessionInfo(
         session_id=session_id,
+        title=info.get("title", "New Conversation"),
         created_at=info["created_at"],
         message_count=info["message_count"],
         last_activity=info.get("last_activity", info["created_at"])
