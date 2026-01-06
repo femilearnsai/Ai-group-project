@@ -61,3 +61,5 @@ frontend/.cache/
 ########################
 *.pem
 *.key
+
+backend/rag/chroma_db/**
