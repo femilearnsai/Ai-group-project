@@ -210,7 +210,7 @@ const MessageBubble = ({ role, content }) => {
       <div className={`max-w-[85%] px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-sm border ${isUser ? "bg-emerald-600 text-white rounded-br-none border-emerald-700" : "bg-white border-slate-200 text-slate-800 rounded-bl-none"
         }`}>
         <div className="flex items-center gap-2 mb-2 opacity-60">
-          <span className="text-[9px] uppercase font-black tracking-widest">{isUser ? 'Taxpayer' : 'Consultant'}</span>
+          <span className="text-[9px] uppercase font-black tracking-widest">{isUser ? 'Taxpayer' : 'AI Assistant'}</span>
         </div>
         <div className="whitespace-pre-wrap break-words font-medium">
           {content}
@@ -572,11 +572,27 @@ const App = () => {
     console.log(currentChat)
   }, [activeChatId]);
 
+  // Keep sidebar responsive: open on large viewports, closed on small
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) setSidebarOpen(true);
+      else setSidebarOpen(false);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   useEffect(() => {
     async function fetchSessions() {
-      const res = await fetch('http://localhost:8000/sessions');
-      const data = await res.json();
-      setConversations(data);
+      try {
+        const res = await fetch('http://localhost:8000/sessions');
+        if (!res.ok) throw new Error('Failed to load sessions');
+        const data = await res.json();
+        setConversations(data || []);
+      } catch (err) {
+        console.error('Error fetching sessions', err);
+      }
     }
 
     fetchSessions();
@@ -586,8 +602,16 @@ const App = () => {
 
   const filteredConversations = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return [...conversations].sort((a, b) => b.timestamp - a.timestamp);
-    return conversations.filter(c => c.session_id.toLowerCase().includes(q)).sort((a, b) => b.timestamp - a.timestamp);
+    const list = Array.isArray(conversations) ? conversations : [];
+    const matched = q
+      ? list.filter(c => (c.session_id || c.title || '').toLowerCase().includes(q))
+      : list;
+
+    return matched.sort((a, b) => {
+      const ta = new Date(a.last_activity || a.created_at || 0).getTime();
+      const tb = new Date(b.last_activity || b.created_at || 0).getTime();
+      return tb - ta;
+    });
   }, [conversations, searchQuery]);
 
   const handleNewChat = () => {
@@ -609,50 +633,76 @@ const App = () => {
       setConversations(prev => prev.filter(c => c.session_id !== id));
       if (activeChatId === id) setActiveChatId(null);
     }
-
-    const res = await fetch(`http://localhost:8000/sessions/${id}`, {
-      method: 'DELETE'
-    });
-
-    const data = await res.json();
-    // toast.success(data.message, {
-    //   position: "top-right",
-    //   autoClose: 5000,
-    //   hideProgressBar: false,
-    //   closeOnClick: false,
-    //   pauseOnHover: true,
-    //   draggable: true,
-    //   progress: undefined,
-    //   theme: "light",
-    //   transition: Bounce,
-    // });
-    alert(data.message)
-    console.log(data.message);
+    try {
+      const res = await fetch(`http://localhost:8000/sessions/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      alert(data.message || `Session ${id} deleted`);
+    } catch (err) {
+      console.error('Failed to delete session', err);
+      alert('Failed to delete session');
+    }
   };
 
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
-    const userText = input;
+    const userText = input.trim();
     setInput('');
     setIsLoading(true);
     setError(null);
-
+    // Optimistically append user's message
     setCurrentChat(prev => [...prev, { role: 'human', content: userText }]);
 
-    const getRandomSessionId = activeChatId || `session-${Date.now()}`;
-
-
+    // Build payload: only include session_id if we already have one
+    const payload = activeChatId ? { message: userText, session_id: activeChatId } : { message: userText };
 
     try {
       const res = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input, session_id: getRandomSessionId }),
+        body: JSON.stringify(payload),
       });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Chat request failed');
+      }
+
       const data = await res.json();
-      const newMessage = { role: 'assistant', content: data.response };
-      setCurrentChat(prev => [...prev, newMessage]);
-      console.log(data)
+
+      // Ensure we use the server-generated session id
+      if (data.session_id && data.session_id !== activeChatId) {
+        setActiveChatId(data.session_id);
+      }
+
+      // Append assistant reply
+      setCurrentChat(prev => [...prev, { role: 'assistant', content: data.response }]);
+
+      // Refresh sessions list to reflect the new/updated session metadata
+      try {
+        const sres = await fetch('http://localhost:8000/sessions');
+        if (sres.ok) {
+          const sdata = await sres.json();
+          setConversations(sdata || []);
+        }
+      } catch (err) {
+        console.error('Failed to refresh sessions', err);
+      }
+
+      // Fetch canonical conversation history from backend to keep in sync
+      if (data.session_id) {
+        try {
+          const hres = await fetch(`http://localhost:8000/sessions/${data.session_id}/history`);
+          if (hres.ok) {
+            const hdata = await hres.json();
+            setCurrentChat(hdata.messages || []);
+          }
+        } catch (err) {
+          console.error('Failed to fetch history', err);
+        }
+      }
+
       return data;
     } catch (err) {
       setError('Failed to get response. Please try again.');
@@ -683,14 +733,14 @@ const App = () => {
 
           <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar">
             {filteredConversations.map(chat => (
-              <div key={chat.session_id} onClick={() => { setActiveChatId(chat.session_id); setActiveTab('chat'); setRole(chat.role); }} className={`group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border ${activeChatId === chat.session_id ? 'bg-white border-emerald-200 shadow-sm' : 'hover:bg-white border-transparent'}`}>
+              <div key={chat.session_id} onClick={() => { setActiveChatId(chat.session_id); setActiveTab('chat'); if (window.innerWidth < 1024) setSidebarOpen(false); }} className={`group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border ${activeChatId === chat.session_id ? 'bg-white border-emerald-200 shadow-sm' : 'hover:bg-white border-transparent'}`}>
                 <div className={`p-2 rounded-lg ${activeChatId === chat.session_id ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
                   {/* {React.createElement(ROLE_CONFIGS[chat.role]?.icon || User, { size: 14 })} */}
                   <User />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[11px] font-black text-slate-800 truncate">{chat.session_id}</h3>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{chat.role}</span>
+                  <h3 className="text-[11px] font-black text-slate-800 truncate">{chat.title || chat.session_id}</h3>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{(chat.message_count || 0) + ' msgs • ' + (chat.last_activity ? new Date(chat.last_activity).toLocaleString() : '')}</span>
                 </div>
                 <button onClick={(e) => deleteChat(e, chat.session_id)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-500 transition-all text-slate-300"><Trash2 size={12} /></button>
               </div>
