@@ -32,6 +32,12 @@ backend/*.sqlite3
 backend/uploads/
 backend/staticfiles/
 
+
+# Vector Database
+*chroma_db/
+*.db
+*.sqlite
+
 ########################
 # Node / React
 ########################
@@ -47,6 +53,7 @@ frontend/dist/
 frontend/build/
 frontend/.next/
 frontend/.cache/
+
 
 ########################
 # IDE / Editor

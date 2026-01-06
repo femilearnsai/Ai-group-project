@@ -341,17 +341,28 @@ class RAGEngine:
             raise RuntimeError(
                 "Agent not initialized. Call initialize() first.")
 
-        # Create initial state
+        # Get existing state from checkpointer
+        config: RunnableConfig = {"configurable": {
+            "thread_id": session_id}}  # type: ignore
+
+        try:
+            existing_state = self.app.get_state(config)  # type: ignore
+            existing_messages = existing_state.values.get("messages", [])
+        except Exception:
+            existing_messages = []
+
+        # Append new message to existing conversation
+        all_messages = existing_messages + [HumanMessage(content=message)]
+
+        # Create state with accumulated messages
         initial_state = {
-            "messages": [HumanMessage(content=message)],
+            "messages": all_messages,
             "context": "",
             "sources": [],
             "needs_retrieval": False
         }
 
         # Run the agent
-        config: RunnableConfig = {"configurable": {
-            "thread_id": session_id}}  # type: ignore
         result = cast(ConversationState, self.app.invoke(
             cast(Any, initial_state), config))  # type: ignore
         ai_message = result["messages"][-1]
@@ -393,6 +404,52 @@ class RAGEngine:
             return result
         except Exception:
             return []
+
+    def generate_session_title(self, session_id: str = "default") -> str:
+        """
+        Generate a descriptive title for a session based on the conversation
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Generated title (max 60 characters)
+        """
+        try:
+            messages = self.get_conversation_history(session_id)
+
+            if not messages:
+                return "New Conversation"
+
+            # Get the first user message
+            first_user_msg = next(
+                (msg["content"] for msg in messages if msg["role"] == "human"),
+                None
+            )
+
+            if not first_user_msg:
+                return "New Conversation"
+
+            # Use LLM to generate a concise title
+            title_prompt = f"""Generate a short, descriptive title (max 60 characters) for a conversation that starts with this question:
+
+"{first_user_msg}"
+
+Respond with ONLY the title, no quotes or extra text."""
+
+            title = self.llm.invoke(title_prompt).content
+
+            # Clean and truncate title
+            if isinstance(title, str):
+                title = title.strip('"').strip()
+                if len(title) > 60:
+                    title = title[:57] + "..."
+                return title
+            else:
+                return "New Conversation"
+
+        except Exception:
+            return "New Conversation"
 
 
 if __name__ == "__main__":
