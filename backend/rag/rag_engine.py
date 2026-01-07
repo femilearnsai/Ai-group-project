@@ -173,6 +173,16 @@ class RAGEngine:
             - The question is a follow-up asking for clarification of previous answer
             - The question is about your capabilities
             
+            IMPORTANT — POST-RETRIEVE REQUIREMENT:
+            If you choose 'YES', the final legal answer MUST:
+
+            - Cite the specific section(s) relied upon from the relevant Act
+            - Use clear section-level citation tags in this format: “See s. [section number], [short Act name]”
+            - Attach citations immediately after each legal proposition, rate, obligation, exemption, or definition
+            - NEVER cite an Act without a section number
+            - NEVER infer or guess section numbers
+            - If no section can be confidently identified, state that explicitly
+            
             Respond with ONLY 'YES' or 'NO'."""),
             MessagesPlaceholder(variable_name="messages"),
         ])
