@@ -58,8 +58,6 @@ Open the app in your browser at the Vite dev server URL (usually http://localhos
 
 ## Participants
 
-Please replace placeholders below with the real team members and GitHub links.
-
 - Oluwaseyi Egunjobi — https://github.com/oluwaseyi-egunjobi
 - <Member Name> — https://github.com/<github-handle>
 - <Member Name> — https://github.com/<github-handle>
