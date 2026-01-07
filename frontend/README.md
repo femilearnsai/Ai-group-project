@@ -1,12 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Frontend — TaxNG Assistant UI
 
-# Run and deploy your AI Studio app
+This folder contains the React + Vite frontend for the TaxNG assistant. It provides the chat UI, session list sidebar, and statutory calculator.
 
-This contains everything you need to run your app locally.
+**Key files**
+- `index.jsx` — main app wiring (chat UI, calculator, session handling)
+- `components/` — modular UI components (`ChatWindow.jsx`, `ChatInput.jsx`, `Header.jsx`, etc.)
+- `package.json` — Node dependencies and scripts
 
-View your app in AI Studio: https://ai.studio/apps/temp/1
+## Run locally
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The app runs on the Vite dev server (usually http://localhost:5173). The frontend expects the backend at `http://localhost:8000` by default; change URLs in `index.jsx` if your backend is hosted elsewhere.
+
+## Notes
+
+- The UI components are intentionally separated under `components/`. Avoid changing component contracts unless you update all usages.
+- Session handling: the frontend now allows the backend to create canonical `session_id`s (omit `session_id` when creating a new chat; the backend returns one).
+- The sidebar shows session titles and metadata; it is responsive and closes automatically on small screens.
 
 ## Run Locally
 
@@ -15,6 +30,5 @@ View your app in AI Studio: https://ai.studio/apps/temp/1
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
