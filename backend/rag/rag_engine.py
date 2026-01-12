@@ -166,7 +166,7 @@ class RAGEngine:
             - The question asks about specific policies, regulations, tax laws, or legal information
             - The question requires factual information from documents
             - The question is about Nigeria Tax Act, Revenue Service, or related legislation
-            - The question is about tax or it's benefits
+            - The question is about tax or it's benefits, NRS, JRB
             
             Answer 'NO' if:
             - The question is a greeting or general chat
