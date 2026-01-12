@@ -59,8 +59,8 @@ Open the app in your browser at the Vite dev server URL (usually http://localhos
 ## Participants
 
 - Oluwaseyi Egunjobi — https://github.com/oluwaseyi-egunjobi
-- <Member Name> — https://github.com/<github-handle>
-- <Member Name> — https://github.com/<github-handle>
+- oluwapelumi Awoyale — https://github.com/femilearnsai
+- Perpetual Meninwa — https://github.com/perpetualdev
 
 If you want, provide the names/handles and I will update this README with the real list.
 

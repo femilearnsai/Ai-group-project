@@ -215,12 +215,13 @@ class RAGEngine:
             source_info = {
                 "source_file": doc.metadata.get("source_file", "Unknown"),
                 "page": doc.metadata.get("page", "Unknown"),
+                "section": doc.metadata.get("section", "Unknown"),
                 "content_preview": doc.page_content[:200] + "..."
             }
             sources.append(source_info)
 
             context_parts.append(
-                f"[Source {i}: {source_info['source_file']}, Page {source_info['page']}]\n{doc.page_content}\n"
+                f"[Source {i}: {source_info['source_file']}, Page {source_info['page']}, Section {source_info['section']}] {source_info['section']}\n{doc.page_content}\n"
             )
 
         context = "\n---\n".join(context_parts)
