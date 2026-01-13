@@ -41,9 +41,27 @@ const parseMarkdown = (text) => {
   return html;
 };
 
-export const MessageBubble = ({ role, content }) => {
+export const MessageBubble = ({ role, content, timestamp }) => {
   const isUser = role === "human";
   const formattedContent = !isUser ? parseMarkdown(content) : content;
+  
+  // Format timestamp
+  const formatTime = (ts) => {
+    if (!ts) return '';
+    const date = new Date(ts);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
   
   return (
     <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
@@ -52,10 +70,15 @@ export const MessageBubble = ({ role, content }) => {
           ? "bg-emerald-600 text-white rounded-br-none border-emerald-700" 
           : "bg-white border-slate-200 text-slate-800 rounded-bl-none"
       }`}>
-        <div className="flex items-center gap-2 mb-2 opacity-60">
+        <div className="flex items-center justify-between gap-2 mb-2 opacity-60">
           <span className="text-[9px] uppercase font-black tracking-widest">
             {isUser ? 'Taxpayer' : 'AI Assistant'}
           </span>
+          {timestamp && (
+            <span className="text-[8px] font-bold tracking-wide">
+              {formatTime(timestamp)}
+            </span>
+          )}
         </div>
         {isUser ? (
           <div className="whitespace-pre-wrap break-words font-medium">

@@ -121,7 +121,13 @@ export const App = () => {
     setIsLoading(true);
     setError(null);
     
-    setCurrentChat(prev => [...prev, { role: 'human', content: userText }]);
+    // Add user message with timestamp
+    const userMessage = { 
+      role: 'human', 
+      content: userText,
+      timestamp: new Date().toISOString()
+    };
+    setCurrentChat(prev => [...prev, userMessage]);
 
     const payload = activeChatId 
       ? { message: userText, session_id: activeChatId } 
@@ -145,7 +151,13 @@ export const App = () => {
         setActiveChatId(data.session_id);
       }
 
-      setCurrentChat(prev => [...prev, { role: 'assistant', content: data.response }]);
+      // Add assistant message with timestamp from API
+      const assistantMessage = { 
+        role: 'assistant', 
+        content: data.response,
+        timestamp: data.timestamp
+      };
+      setCurrentChat(prev => [...prev, assistantMessage]);
 
       try {
         const sres = await fetch('http://localhost:8000/sessions');
