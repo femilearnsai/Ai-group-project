@@ -9,7 +9,7 @@ export const ChatSection = ({ currentChat, error, onRegenerate, sessionId, onEdi
     : -1;
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12 flex flex-col gap-10">
+    <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-8 md:py-12 flex flex-col gap-4 sm:gap-6 md:gap-10">
       {currentChat && currentChat.map((m, index) => (
         <MessageBubble 
           key={index} 

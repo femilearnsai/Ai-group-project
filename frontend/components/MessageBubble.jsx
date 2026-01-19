@@ -344,7 +344,7 @@ export const MessageBubble = ({ role, content, timestamp, onRegenerate, isLastAs
   
   return (
     <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
-      <div className={`max-w-[85%] px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-sm border ${
+      <div className={`max-w-[92%] sm:max-w-[88%] md:max-w-[85%] px-3 sm:px-4 md:px-5 py-3 sm:py-4 rounded-xl sm:rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm border ${
         isUser 
           ? "bg-emerald-600 text-white rounded-br-none border-emerald-700" 
           : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-none"

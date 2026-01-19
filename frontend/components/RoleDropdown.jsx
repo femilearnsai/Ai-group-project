@@ -67,20 +67,20 @@ export const RoleDropdown = ({ selectedRole, onRoleChange }) => {
       {/* Dropdown trigger button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all font-bold text-sm ${getColorClasses(currentRole.color, true)}`}
+        className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg sm:rounded-xl border-2 transition-all font-bold text-xs sm:text-sm ${getColorClasses(currentRole.color, true)}`}
       >
-        <CurrentIcon size={16} />
-        <span className="hidden sm:inline">{currentRole.label}</span>
+        <CurrentIcon size={14} className="sm:w-4 sm:h-4" />
+        <span className="hidden md:inline">{currentRole.label}</span>
         <ChevronDown 
-          size={14} 
-          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
+          size={12} 
+          className={`sm:w-3.5 sm:h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} 
         />
       </button>
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="px-3 py-2 text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+        <div className="absolute top-full left-0 sm:left-auto sm:right-0 mt-2 w-56 sm:w-64 bg-white dark:bg-slate-800 rounded-lg sm:rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="px-3 py-2 text-[8px] sm:text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
             I am asking as...
           </div>
           {ROLES.map((role) => {

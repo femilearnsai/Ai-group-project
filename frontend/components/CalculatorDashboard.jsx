@@ -48,7 +48,7 @@ export const CalculatorDashboard = ({ role, inputs, setInputs, onClear }) => {
   }, [role, inputs]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 md:gap-6">
       {/* Inputs */}
       <div className="lg:col-span-1 space-y-6">
         <Card>
@@ -57,54 +57,54 @@ export const CalculatorDashboard = ({ role, inputs, setInputs, onClear }) => {
             {role === 'Company' ? (
               <>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Profit Before Tax</label>
+                  <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">Profit Before Tax</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500 text-sm">₦</span>
-                    <input type="number" name="profitBeforeTax" value={inputs.profitBeforeTax || ''} onChange={handleInputChange} className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold text-slate-800 dark:text-slate-100" />
+                    <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-slate-400 dark:text-slate-500 text-xs sm:text-sm">₦</span>
+                    <input type="number" name="profitBeforeTax" value={inputs.profitBeforeTax || ''} onChange={handleInputChange} className="w-full pl-7 sm:pl-8 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100" />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Company Category</label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">Company Category</label>
+                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
                     <button
                       onClick={() => setInputs(prev => ({ ...prev, isSmallCompany: true }))}
-                      className={`flex flex-col items-center p-3 rounded-xl border-2 transition-all ${
+                      className={`flex flex-col items-center p-2 sm:p-3 rounded-lg sm:rounded-xl border-2 transition-all ${
                         inputs.isSmallCompany 
                           ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
                           : 'border-slate-100 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                       }`}
                     >
-                      <span className="text-[10px] font-black uppercase">Small</span>
-                      <span className="text-[8px] font-bold opacity-70">Exempt (0% CIT)</span>
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase">Small</span>
+                      <span className="text-[7px] sm:text-[8px] font-bold opacity-70">Exempt (0%)</span>
                     </button>
                     <button
                       onClick={() => setInputs(prev => ({ ...prev, isSmallCompany: false }))}
-                      className={`flex flex-col items-center p-3 rounded-xl border-2 transition-all ${
+                      className={`flex flex-col items-center p-2 sm:p-3 rounded-lg sm:rounded-xl border-2 transition-all ${
                         !inputs.isSmallCompany 
                           ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' 
                           : 'border-slate-100 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
                       }`}
                     >
-                      <span className="text-[10px] font-black uppercase">Standard</span>
-                      <span className="text-[8px] font-bold opacity-70">30% CIT Rate</span>
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase">Standard</span>
+                      <span className="text-[7px] sm:text-[8px] font-bold opacity-70">30% CIT</span>
                     </button>
                   </div>
                 </div>
               </>
             ) : (
               <div>
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Gross Annual Income</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">Gross Annual Income</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500 text-sm">₦</span>
-                  <input type="number" name="grossIncome" value={inputs.grossIncome || ''} onChange={handleInputChange} className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold text-slate-800 dark:text-slate-100" />
+                  <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-slate-400 dark:text-slate-500 text-xs sm:text-sm">₦</span>
+                  <input type="number" name="grossIncome" value={inputs.grossIncome || ''} onChange={handleInputChange} className="w-full pl-7 sm:pl-8 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100" />
                 </div>
               </div>
             )}
             <div>
-              <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Capital Gains</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">Capital Gains</label>
               <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500 text-sm">₦</span>
-                <input type="number" name="cgtGains" value={inputs.cgtGains || ''} onChange={handleInputChange} className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold text-slate-800 dark:text-slate-100" />
+                <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-slate-400 dark:text-slate-500 text-xs sm:text-sm">₦</span>
+                <input type="number" name="cgtGains" value={inputs.cgtGains || ''} onChange={handleInputChange} className="w-full pl-7 sm:pl-8 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100" />
               </div>
             </div>
           </div>
@@ -112,21 +112,21 @@ export const CalculatorDashboard = ({ role, inputs, setInputs, onClear }) => {
 
         <Card>
           <SectionTitle icon={FileText}>Reliefs & Credits</SectionTitle>
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {role !== 'Company' && (
               <div>
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Total Deductions</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">Total Deductions</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500 text-sm">₦</span>
-                  <input type="number" name="deductions" value={inputs.deductions || ''} onChange={handleInputChange} className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold text-slate-800 dark:text-slate-100" />
+                  <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-slate-400 dark:text-slate-500 text-xs sm:text-sm">₦</span>
+                  <input type="number" name="deductions" value={inputs.deductions || ''} onChange={handleInputChange} className="w-full pl-7 sm:pl-8 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100" />
                 </div>
               </div>
             )}
             <div>
-              <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">WHT Credits</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider sm:tracking-widest block mb-1">WHT Credits</label>
               <div className="relative">
-                <span className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500 text-sm">₦</span>
-                <input type="number" name="whtCredits" value={inputs.whtCredits || ''} onChange={handleInputChange} className="w-full pl-8 pr-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-bold text-slate-800 dark:text-slate-100" />
+                <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-slate-400 dark:text-slate-500 text-xs sm:text-sm">₦</span>
+                <input type="number" name="whtCredits" value={inputs.whtCredits || ''} onChange={handleInputChange} className="w-full pl-7 sm:pl-8 pr-3 sm:pr-4 py-1.5 sm:py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg sm:rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100" />
               </div>
             </div>
           </div>
@@ -134,22 +134,22 @@ export const CalculatorDashboard = ({ role, inputs, setInputs, onClear }) => {
       </div>
 
       {/* Breakdown */}
-      <div className="lg:col-span-2 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-slate-900 dark:bg-slate-950 rounded-2xl p-6 text-white flex flex-col justify-between shadow-lg">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Total Tax Liability</span>
-            <div className="mt-2">
-              <h2 className="text-3xl font-black"><CurrencyDisplay value={results.netPayable} /></h2>
-              <p className="text-[10px] text-emerald-400 font-bold mt-1 uppercase tracking-tighter">
+      <div className="lg:col-span-2 space-y-4 sm:space-y-5 md:space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="bg-slate-900 dark:bg-slate-950 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 text-white flex flex-col justify-between shadow-lg">
+            <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-slate-400 mb-1">Total Tax Liability</span>
+            <div className="mt-1 sm:mt-2">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black"><CurrencyDisplay value={results.netPayable} /></h2>
+              <p className="text-[8px] sm:text-[9px] md:text-[10px] text-emerald-400 font-bold mt-1 uppercase tracking-tighter">
                 Effective Rate: {results.gross > 0 ? ((results.totalLiability / results.gross) * 100).toFixed(1) : 0}%
               </p>
             </div>
           </div>
-          <div className="bg-emerald-600 dark:bg-emerald-700 rounded-2xl p-6 text-white flex flex-col justify-between shadow-lg">
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-100 mb-1">Est. Net Take-Home</span>
-            <div className="mt-2">
-              <h2 className="text-3xl font-black"><CurrencyDisplay value={results.netIncome} /></h2>
-              <p className="text-[10px] text-emerald-200 font-bold mt-1 tracking-wider uppercase">Post-Statutory Deductions</p>
+          <div className="bg-emerald-600 dark:bg-emerald-700 rounded-xl sm:rounded-2xl p-4 sm:p-5 md:p-6 text-white flex flex-col justify-between shadow-lg">
+            <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-emerald-100 mb-1">Est. Net Take-Home</span>
+            <div className="mt-1 sm:mt-2">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-black"><CurrencyDisplay value={results.netIncome} /></h2>
+              <p className="text-[8px] sm:text-[9px] md:text-[10px] text-emerald-200 font-bold mt-1 tracking-wider uppercase">Post-Statutory Deductions</p>
             </div>
           </div>
         </div>

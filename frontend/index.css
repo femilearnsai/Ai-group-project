@@ -3,6 +3,50 @@
 /* Enable class-based dark mode for Tailwind v4 */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Custom xs breakpoint for small phones */
+@custom-media --xs (min-width: 375px);
+
+/* Use xs breakpoint in Tailwind-like manner */
+@media (min-width: 375px) {
+  .xs\:w-72 { width: 18rem; }
+  .xs\:block { display: block; }
+  .xs\:inline { display: inline; }
+  .xs\:hidden { display: none; }
+}
+
+/* Safe area padding for notched devices (iPhone X+, etc.) */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Prevent zoom on input focus for iOS */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  
+  @media (min-width: 640px) {
+    input, textarea, select {
+      font-size: inherit !important;
+    }
+  }
+}
+
+/* Smooth scrolling for all devices */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on mobile */
+body {
+  overscroll-behavior-y: contain;
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-5px); }
@@ -41,6 +85,15 @@
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Prevent horizontal scroll on mobile */
+  overflow-x: hidden;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+
+/* Fix for iOS Safari 100vh bug */
+html {
+  height: -webkit-fill-available;
 }
 
 .message-bubble-user {
@@ -61,4 +114,39 @@ body {
 
 html.dark .glass-card {
   background: rgba(30, 41, 59, 0.8);
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 640px) {
+  button, a, input, textarea, select {
+    min-height: 44px;
+  }
+  
+  /* Improve text readability on small screens */
+  .markdown-content {
+    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+}
+
+/* Responsive font scaling */
+@media (max-width: 375px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 376px) and (max-width: 640px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+/* Landscape mode adjustments for mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+  .h-screen {
+    height: auto;
+    min-height: 100vh;
+  }
 }
