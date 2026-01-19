@@ -587,6 +587,10 @@ async def text_to_speech(request: TTSRequest):
             status_code=500,
             detail=f"Error generating speech: {str(e)}"
         )
+        
+@app.post("/healthcheck")
+async def healthcheck():
+    return {"status": "ok"}
 
 
 # Exception handlers
