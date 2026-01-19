@@ -75,7 +75,15 @@ export const ROLE_CONFIGS = {
 
 export const CITATION_REGEX = /((JRBA|NTAA|NRSA|NTA)\s*(s\.|Section|Paragraph)?\s*\d+(\/\d+)?)/gi;
 
-export const INITIAL_GREETING = "Greetings. I am your Nigeria Tax Reform Assistant (2025). Select a profile and ask me anything about the new tax laws.";
+// Legacy static greetings (kept for reference)
+// For dynamic time-based greetings, use getRoleGreeting() from utils.js
+export const ROLE_GREETINGS = {
+  taxpayer: "Good morning Taxpayer, thank you for paying your taxes. How can I help you today?",
+  tax_lawyer: "Good morning Barrister, thank you for encouraging people to pay their taxes. How can I help you today?",
+  company: "Good morning Great Nigerian Company, thank you for complying with the tax laws. How can I help you today?"
+};
+
+export const INITIAL_GREETING = ROLE_GREETINGS.taxpayer;
 
 export const INITIAL_CALC_INPUTS = {
   grossIncome: 0,

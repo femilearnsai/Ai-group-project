@@ -3,20 +3,26 @@ FastAPI Backend for Nigerian Tax Reform Bills Q&A Assistant
 Provides RESTful API endpoints for the frontend
 """
 
-from .rag.rag_engine import RAGEngine
+import sys
+import os
+from pathlib import Path
+
+# Add backend directory to path to ensure rag module can be found
+backend_dir = Path(__file__).parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from rag.rag_engine import RAGEngine
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
 import uuid
-import sys
-from pathlib import Path
-
-# Add parent directory to path to import rag_engine
-# sys.path.append(str(Path(__file__).parent.parent))
+from openai import OpenAI
+import io
 
 # Global RAG engine instance
 # rag_engine: Optional[RAGEngine] = None
@@ -25,6 +31,7 @@ from pathlib import Path
 sessions: Dict[str, Dict[str, Any]] = {}
 
 rag_engine = RAGEngine()
+openai_client = OpenAI()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -63,6 +70,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Type", "Content-Disposition"],
 )
 
 
@@ -72,6 +80,10 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message", min_length=1)
     session_id: Optional[str] = Field(
         None, description="Session ID for conversation continuity")
+    user_role: Optional[str] = Field(
+        "taxpayer", 
+        description="User role: tax_lawyer, taxpayer, or company"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -111,6 +123,24 @@ class HealthResponse(BaseModel):
     status: str
     message: str
     rag_initialized: bool
+
+
+class FeedbackRequest(BaseModel):
+    """Request model for feedback endpoint"""
+    session_id: str = Field(..., description="Session ID")
+    message_index: int = Field(..., description="Index of the message being rated")
+    feedback_type: str = Field(..., description="Type of feedback: 'liked' or 'disliked'")
+    message_content: Optional[str] = Field(None, description="Content of the message for context")
+
+
+class RegenerateRequest(BaseModel):
+    """Request model for regenerate endpoint"""
+    session_id: str = Field(..., description="Session ID")
+    user_role: Optional[str] = Field("taxpayer", description="User role")
+
+
+# Feedback storage (in production, use a database)
+feedback_store: Dict[str, List[Dict[str, Any]]] = {}
 
 
 # API Endpoints
@@ -166,9 +196,13 @@ async def chat(request: ChatRequest):
     sessions[session_id]["message_count"] += 1
     sessions[session_id]["last_activity"] = datetime.now().isoformat()
 
+    # Validate and set user role
+    valid_roles = ["tax_lawyer", "taxpayer", "company"]
+    user_role = request.user_role if request.user_role in valid_roles else "taxpayer"
+
     try:
-        # Get response from RAG engine
-        result = rag_engine.chat(request.message, session_id=session_id)
+        # Get response from RAG engine with user role
+        result = rag_engine.chat(request.message, session_id=session_id, user_role=user_role)
 
         # Generate title for new sessions after first message
         if is_new_session:
@@ -289,6 +323,186 @@ async def clear_session_history(session_id: str):
     }
 
 
+@app.post("/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """
+    Submit feedback for an AI response
+    
+    This stores user feedback which can be used to:
+    - Track response quality
+    - Identify problematic responses
+    - Improve the RAG system over time
+    """
+    # Validate feedback type
+    if request.feedback_type not in ["liked", "disliked"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid feedback type. Must be 'liked' or 'disliked'"
+        )
+    
+    # Create feedback entry
+    feedback_entry = {
+        "session_id": request.session_id,
+        "message_index": request.message_index,
+        "feedback_type": request.feedback_type,
+        "message_content": request.message_content[:500] if request.message_content else None,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Store feedback
+    if request.session_id not in feedback_store:
+        feedback_store[request.session_id] = []
+    
+    # Check if feedback already exists for this message
+    existing_idx = next(
+        (i for i, f in enumerate(feedback_store[request.session_id]) 
+         if f["message_index"] == request.message_index),
+        None
+    )
+    
+    if existing_idx is not None:
+        # Update existing feedback
+        feedback_store[request.session_id][existing_idx] = feedback_entry
+    else:
+        # Add new feedback
+        feedback_store[request.session_id].append(feedback_entry)
+    
+    # Log feedback for monitoring
+    print(f"📊 Feedback received: {request.feedback_type} for session {request.session_id[:8]}... message #{request.message_index}")
+    
+    return {
+        "status": "success",
+        "message": f"Feedback '{request.feedback_type}' recorded successfully",
+        "session_id": request.session_id,
+        "message_index": request.message_index
+    }
+
+
+@app.delete("/feedback/{session_id}/{message_index}")
+async def remove_feedback(session_id: str, message_index: int):
+    """Remove feedback for a specific message"""
+    if session_id not in feedback_store:
+        raise HTTPException(status_code=404, detail="No feedback found for this session")
+    
+    # Find and remove feedback
+    feedback_list = feedback_store[session_id]
+    original_len = len(feedback_list)
+    feedback_store[session_id] = [f for f in feedback_list if f["message_index"] != message_index]
+    
+    if len(feedback_store[session_id]) == original_len:
+        raise HTTPException(status_code=404, detail="Feedback not found for this message")
+    
+    return {
+        "status": "success",
+        "message": "Feedback removed successfully"
+    }
+
+
+@app.get("/feedback/{session_id}")
+async def get_session_feedback(session_id: str):
+    """Get all feedback for a session"""
+    if session_id not in feedback_store:
+        return {"session_id": session_id, "feedback": []}
+    
+    return {
+        "session_id": session_id,
+        "feedback": feedback_store[session_id]
+    }
+
+
+@app.get("/feedback/stats/summary")
+async def get_feedback_stats():
+    """Get overall feedback statistics"""
+    total_liked = 0
+    total_disliked = 0
+    
+    for session_feedback in feedback_store.values():
+        for f in session_feedback:
+            if f["feedback_type"] == "liked":
+                total_liked += 1
+            else:
+                total_disliked += 1
+    
+    total = total_liked + total_disliked
+    
+    return {
+        "total_feedback": total,
+        "liked": total_liked,
+        "disliked": total_disliked,
+        "satisfaction_rate": round(total_liked / total * 100, 1) if total > 0 else None,
+        "sessions_with_feedback": len(feedback_store)
+    }
+
+
+@app.post("/regenerate", response_model=ChatResponse)
+async def regenerate_response(request: RegenerateRequest):
+    """
+    Regenerate the last AI response for a session
+    
+    This retrieves the last user message and generates a new response
+    """
+    if rag_engine is None:
+        raise HTTPException(
+            status_code=503,
+            detail="RAG engine not initialized. Please try again later."
+        )
+    
+    if request.session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Validate user role
+    valid_roles = ["tax_lawyer", "taxpayer", "company"]
+    user_role = request.user_role if request.user_role in valid_roles else "taxpayer"
+    
+    try:
+        # Get conversation history
+        messages = rag_engine.get_conversation_history(session_id=request.session_id)
+        
+        if not messages or len(messages) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Not enough conversation history to regenerate"
+            )
+        
+        # Find the last human message
+        last_human_msg = None
+        for msg in reversed(messages):
+            if msg.get("role") == "human":
+                last_human_msg = msg.get("content")
+                break
+        
+        if not last_human_msg:
+            raise HTTPException(
+                status_code=400,
+                detail="No user message found to regenerate response for"
+            )
+        
+        # Generate new response with the same message
+        result = rag_engine.chat(last_human_msg, session_id=request.session_id, user_role=user_role)
+        
+        session_title = sessions[request.session_id].get("title", "New Conversation")
+        sessions[request.session_id]["last_activity"] = datetime.now().isoformat()
+        
+        print(f"🔄 Response regenerated for session {request.session_id[:8]}...")
+        
+        return ChatResponse(
+            response=result["response"],
+            session_id=request.session_id,
+            session_title=session_title,
+            sources=result.get("sources", []),
+            used_retrieval=result.get("used_retrieval", False),
+            timestamp=datetime.now().isoformat()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error regenerating response: {str(e)}"
+        )
+
+
 @app.post("/reload-documents")
 async def reload_documents():
     """
@@ -312,6 +526,66 @@ async def reload_documents():
         raise HTTPException(
             status_code=500,
             detail=f"Error reloading documents: {str(e)}"
+        )
+
+
+class TTSRequest(BaseModel):
+    """Request model for text-to-speech"""
+    text: str = Field(..., description="Text to convert to speech")
+    voice: str = Field(default="alloy", description="Voice to use (alloy, echo, fable, onyx, nova, shimmer)")
+
+
+# OpenAI TTS voices
+OPENAI_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+
+
+@app.post("/tts")
+async def text_to_speech(request: TTSRequest):
+    """
+    Convert text to speech using OpenAI TTS API
+    Returns audio stream with proper CORS headers
+    """
+    if not request.text or not request.text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Text cannot be empty"
+        )
+    
+    try:
+        # Validate voice
+        voice = request.voice.lower() if request.voice.lower() in OPENAI_VOICES else "alloy"
+        
+        # Limit text length to prevent excessive API usage
+        text_to_speak = request.text[:4096].strip()
+        
+        print(f"🎙️ Generating TTS with OpenAI voice '{voice}' for {len(text_to_speak)} chars")
+        
+        # Generate speech using OpenAI
+        response = openai_client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=text_to_speak
+        )
+        
+        # Get audio data
+        audio_data = response.content
+        
+        return StreamingResponse(
+            iter([audio_data]),
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline; filename=speech.mp3",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type"
+            }
+        )
+            
+    except Exception as e:
+        print(f"TTS Error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating speech: {str(e)}"
         )
 
 

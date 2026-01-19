@@ -51,3 +51,36 @@ export const calculateCIT = (profitBeforeTax, isSmallCompany, cgtGains) => {
 
   return { citPayable, devLevy, companyCGT, topUpTax, totalCompanyTax, minTaxFloor };
 };
+
+/**
+ * Get time-based greeting (Good morning/afternoon/evening) based on user's local time
+ * @returns {string} - The appropriate greeting based on current hour
+ */
+export const getTimeBasedGreeting = () => {
+  const hour = new Date().getHours();
+  
+  if (hour >= 5 && hour < 12) {
+    return 'Good morning';
+  } else if (hour >= 12 && hour < 17) {
+    return 'Good afternoon';
+  } else {
+    return 'Good evening';
+  }
+};
+
+/**
+ * Get role-specific greeting with time-based salutation
+ * @param {string} userRole - The user's role (taxpayer, tax_lawyer, company)
+ * @returns {string} - The complete greeting message
+ */
+export const getRoleGreeting = (userRole) => {
+  const timeGreeting = getTimeBasedGreeting();
+  
+  const greetings = {
+    taxpayer: `${timeGreeting} Taxpayer, thank you for paying your taxes. How can I help you today?`,
+    tax_lawyer: `${timeGreeting} Barrister, thank you for encouraging people to pay their taxes. How can I help you today?`,
+    company: `${timeGreeting} Great Nigerian Company, thank you for complying with the tax laws. How can I help you today?`
+  };
+  
+  return greetings[userRole] || greetings.taxpayer;
+};

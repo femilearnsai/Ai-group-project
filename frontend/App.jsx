@@ -5,11 +5,15 @@ import { Header } from './components/Header.jsx';
 import { ChatSection } from './components/ChatSection.jsx';
 import { ChatInput } from './components/ChatInput.jsx';
 import { CalculatorDashboard } from './components/CalculatorDashboard.jsx';
-import { INITIAL_GREETING, INITIAL_CALC_INPUTS } from './constants.js';
+import { RoleSelector } from './components/RoleSelector.jsx';
+import { INITIAL_CALC_INPUTS } from './constants.js';
+import { getRoleGreeting } from './utils.js';
+import config from './config.js';
 
 export const App = () => {
   const [activeTab, setActiveTab] = useState('chat');
   const [role, setRole] = useState('Individual');
+  const [userRole, setUserRole] = useState('taxpayer'); // tax_lawyer, taxpayer, company
   const [conversations, setConversations] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [input, setInput] = useState('');
@@ -34,15 +38,16 @@ export const App = () => {
   useEffect(() => {
     async function fetchCurrentChat() {
       if (activeChatId) {
-        const res = await fetch(`http://localhost:8000/sessions/${activeChatId}/history`);
+        const res = await fetch(`${config.API_BASE_URL}/sessions/${activeChatId}/history`);
         const data = await res.json();
         setCurrentChat(data.messages);
       } else {
-        setCurrentChat([{ role: 'assistant', content: INITIAL_GREETING }]);
+        const greeting = getRoleGreeting(userRole);
+        setCurrentChat([{ role: 'assistant', content: greeting, isGreeting: true }]);
       }
     }
     fetchCurrentChat();
-  }, [activeChatId]);
+  }, [activeChatId, userRole]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -57,7 +62,7 @@ export const App = () => {
   useEffect(() => {
     async function fetchSessions() {
       try {
-        const res = await fetch('http://localhost:8000/sessions');
+        const res = await fetch(config.endpoints.sessions);
         if (!res.ok) throw new Error('Failed to load sessions');
         const data = await res.json();
         setConversations(data || []);
@@ -98,12 +103,12 @@ export const App = () => {
 
   const deleteChat = async (e, id) => {
     e.stopPropagation();
-    if (confirm('Delete this inquiry?')) {
+    if (confirm('Delete this conversation?')) {
       setConversations(prev => prev.filter(c => c.session_id !== id));
       if (activeChatId === id) setActiveChatId(null);
     }
     try {
-      const res = await fetch(`http://localhost:8000/sessions/${id}`, {
+      const res = await fetch(`${config.API_BASE_URL}/sessions/${id}`, {
         method: 'DELETE'
       });
       const data = await res.json();
@@ -130,11 +135,11 @@ export const App = () => {
     setCurrentChat(prev => [...prev, userMessage]);
 
     const payload = activeChatId 
-      ? { message: userText, session_id: activeChatId } 
-      : { message: userText };
+      ? { message: userText, session_id: activeChatId, user_role: userRole } 
+      : { message: userText, user_role: userRole };
 
     try {
-      const res = await fetch('http://localhost:8000/chat', {
+      const res = await fetch(config.endpoints.chat, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -160,7 +165,7 @@ export const App = () => {
       setCurrentChat(prev => [...prev, assistantMessage]);
 
       try {
-        const sres = await fetch('http://localhost:8000/sessions');
+        const sres = await fetch(config.endpoints.sessions);
         if (sres.ok) {
           const sdata = await sres.json();
           setConversations(sdata || []);
@@ -171,7 +176,7 @@ export const App = () => {
 
       if (data.session_id) {
         try {
-          const hres = await fetch(`http://localhost:8000/sessions/${data.session_id}/history`);
+          const hres = await fetch(`${config.API_BASE_URL}/sessions/${data.session_id}/history`);
           if (hres.ok) {
             const hdata = await hres.json();
             setCurrentChat(hdata.messages || []);
@@ -190,8 +195,114 @@ export const App = () => {
     }
   };
 
+  const handleRegenerate = async () => {
+    if (isLoading || !currentChat || currentChat.length < 2) return;
+    
+    // Find the last user message
+    const lastUserMessageIndex = [...currentChat].reverse().findIndex(m => m.role === 'human');
+    if (lastUserMessageIndex === -1) return;
+    
+    const actualIndex = currentChat.length - 1 - lastUserMessageIndex;
+    const lastUserMessage = currentChat[actualIndex];
+    
+    // Find the last assistant message index
+    const lastAssistantIndex = currentChat.length - 1 - [...currentChat].reverse().findIndex(m => m.role === 'assistant' || m.role === 'ai');
+    
+    setIsLoading(true);
+    setError(null);
+
+    const payload = activeChatId 
+      ? { message: lastUserMessage.content, session_id: activeChatId, user_role: userRole } 
+      : { message: lastUserMessage.content, user_role: userRole };
+
+    try {
+      const res = await fetch(config.endpoints.chat, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Regeneration failed');
+      }
+
+      const data = await res.json();
+
+      // Update the last assistant message with versioning
+      setCurrentChat(prev => {
+        const newChat = [...prev];
+        const lastAssistant = newChat[lastAssistantIndex];
+        
+        if (lastAssistant && (lastAssistant.role === 'assistant' || lastAssistant.role === 'ai')) {
+          // If versions array doesn't exist, create it with the current content as version 1
+          const existingVersions = lastAssistant.versions || [
+            { content: lastAssistant.content, timestamp: lastAssistant.timestamp }
+          ];
+          
+          // Add new response as a new version
+          const newVersions = [
+            { content: data.response, timestamp: data.timestamp },
+            ...existingVersions
+          ];
+          
+          // Update the message with versions (newest first, so index 0 is the latest)
+          newChat[lastAssistantIndex] = {
+            ...lastAssistant,
+            content: data.response,
+            timestamp: data.timestamp,
+            versions: newVersions,
+            currentVersionIndex: 0 // Show the newest version
+          };
+        }
+        
+        return newChat;
+      });
+
+    } catch (err) {
+      setError('Failed to regenerate response. Please try again.');
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVersionChange = (messageIndex, versionIndex) => {
+    setCurrentChat(prev => {
+      const newChat = [...prev];
+      const message = newChat[messageIndex];
+      
+      if (message && message.versions && message.versions[versionIndex]) {
+        newChat[messageIndex] = {
+          ...message,
+          currentVersionIndex: versionIndex
+        };
+      }
+      
+      return newChat;
+    });
+  };
+
+  const handleEdit = (content, messageIndex) => {
+    // Set the input to the message content for editing
+    setInput(content);
+    
+    // Scroll to bottom to show the input field
+    if (scrollRef.current) {
+      setTimeout(() => {
+        scrollRef.current.scrollTo({ 
+          top: scrollRef.current.scrollHeight, 
+          behavior: 'smooth' 
+        });
+      }, 100);
+    }
+  };
+
   return (
-    <div className="flex h-screen bg-white font-sans overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-slate-900 font-sans overflow-hidden transition-colors duration-300">
+      {/* Sidebar takes fixed width when open on desktop */}
+      <div className={`hidden lg:block transition-all duration-300 ${sidebarOpen ? 'w-80' : 'w-0'}`} />
+      
       <Sidebar
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
@@ -206,37 +317,39 @@ export const App = () => {
         activeTab={activeTab}
       />
 
-      <div className="flex-1 flex flex-col h-full bg-white relative">
+      <div className="flex-1 flex flex-col h-full bg-white dark:bg-slate-900 relative transition-colors duration-300">
         <Header
           setSidebarOpen={setSidebarOpen}
           sidebarOpen={sidebarOpen}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           activeChatId={activeChatId}
+          userRole={userRole}
+          setUserRole={setUserRole}
         />
 
         <main ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar scroll-smooth">
           {activeTab === 'chat' ? (
-            <ChatSection currentChat={currentChat} error={error} />
+            <ChatSection currentChat={currentChat} error={error} onRegenerate={handleRegenerate} sessionId={activeChatId} onEdit={handleEdit} onVersionChange={handleVersionChange} />
           ) : (
             <div className="max-w-6xl mx-auto px-6 py-12">
               <div className="mb-10 text-center">
-                <h2 className="text-4xl font-black text-slate-800 tracking-tighter mb-2">
+                <h2 className="text-4xl font-black text-slate-800 dark:text-slate-100 tracking-tighter mb-2">
                   Statutory Calculator
                 </h2>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">
+                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">
                   Aligned with Nigeria Tax Act 2025 Provisions
                 </p>
                 <div className="flex flex-wrap justify-center mt-6 items-center gap-4">
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                     {['Individual', 'Company'].map(r => (
                       <button 
                         key={r} 
                         onClick={() => setRole(r)} 
                         className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
                           role === r 
-                            ? 'bg-white shadow-sm text-emerald-600' 
-                            : 'text-slate-400'
+                            ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400' 
+                            : 'text-slate-400 dark:text-slate-500'
                         }`}
                       >
                         {r}
@@ -245,7 +358,7 @@ export const App = () => {
                   </div>
                   <button 
                     onClick={handleClearCalc} 
-                    className="flex items-center gap-2 px-4 py-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border border-transparent hover:border-rose-100"
+                    className="flex items-center gap-2 px-4 py-2 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest border border-transparent hover:border-rose-100 dark:hover:border-rose-800"
                   >
                     <RotateCcw size={14} /> Clear All
                   </button>

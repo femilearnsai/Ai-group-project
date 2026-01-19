@@ -4,76 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nigerian Tax Assistant | History & Search</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Prevent flash of wrong theme - must be FIRST -->
+    <script>
+      (function() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (saved === 'system' && prefersDark) || (!saved && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@19.2.3",
-    "react-dom": "https://esm.sh/react-dom@19.2.3",
-    "react-dom/client": "https://esm.sh/react-dom@19.2.3/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
-  }
-}
-</script>
-    <style>
-      @keyframes shake {
-        0%, 100% { transform: translateX(0); }
-        25% { transform: translateX(-5px); }
-        75% { transform: translateX(5px); }
-      }
-      @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(400%); }
-      }
-      @keyframes message-in {
-        from { transform: translateY(20px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-      }
-      @keyframes float {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-5px); }
-      }
-      @keyframes pulse-soft {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
-      }
-      @keyframes glow-green {
-        0%, 100% { box-shadow: 0 0 5px rgba(0, 135, 81, 0.2); }
-        50% { box-shadow: 0 0 20px rgba(0, 135, 81, 0.4); }
-      }
-      
-      .animate-shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
-      .animate-shimmer { animation: shimmer 2.5s infinite linear; }
-      .animate-message-in { animation: message-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-      .animate-float { animation: float 3s ease-in-out infinite; }
-      .animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
-      .glow-green:focus-within { animation: glow-green 2s infinite; }
-
-      .no-scrollbar::-webkit-scrollbar { display: none; }
-      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      
-      body {
-        font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        background-color: #f8fafc;
-      }
-
-      .message-bubble-user {
-        background: linear-gradient(135deg, #008751 0%, #006b40 100%);
-      }
-
-      .glass-card {
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-      }
-    </style>
-  <link rel="stylesheet" href="/index.css">
-</head>
-  <body class="bg-slate-50 text-slate-900">
+    <link rel="stylesheet" href="/index.css">
+  </head>
+  <body class="bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-300">
     <div id="root"></div>
-    <script type="module" src="index.jsx"></script>
-  <script type="module" src="/index.jsx"></script>
-</body>
+    <script type="module" src="/index.jsx"></script>
+  </body>
 </html>
