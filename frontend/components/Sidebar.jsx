@@ -119,6 +119,7 @@ const TeamCredits = () => {
     { name: 'Perpetual Meninwa', role: 'Team Member' },
     { name: 'Gbemisola Victoria', role: 'Team Member' },
     { name: 'Odefemi Adebola', role: 'Team Member' },
+    { name: 'Simeon Akinrinade', role: 'Team Member' },
   ];
   
   return (
