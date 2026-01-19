@@ -299,9 +299,9 @@ export const App = () => {
   };
 
   return (
-    <div className="flex h-screen bg-white dark:bg-slate-900 font-sans overflow-hidden transition-colors duration-300">
-      {/* Sidebar takes fixed width when open on desktop */}
-      <div className={`hidden lg:block transition-all duration-300 ${sidebarOpen ? 'w-72 xl:w-80' : 'w-0'}`} />
+    <div className="flex h-screen h-screen-safe bg-white dark:bg-slate-900 font-sans overflow-hidden transition-colors duration-300">
+      {/* Sidebar placeholder for desktop layout */}
+      <div className={`hidden lg:block transition-all duration-300 flex-shrink-0 ${sidebarOpen ? 'w-72 xl:w-80' : 'w-0'}`} />
       
       <Sidebar
         sidebarOpen={sidebarOpen}
@@ -317,7 +317,7 @@ export const App = () => {
         activeTab={activeTab}
       />
 
-      <div className="flex-1 flex flex-col h-full bg-white dark:bg-slate-900 relative transition-colors duration-300">
+      <div className="flex-1 flex flex-col h-full min-w-0 bg-white dark:bg-slate-900 relative transition-colors duration-300">
         <Header
           setSidebarOpen={setSidebarOpen}
           sidebarOpen={sidebarOpen}
@@ -328,25 +328,25 @@ export const App = () => {
           setUserRole={setUserRole}
         />
 
-        <main ref={scrollRef} className="flex-1 overflow-y-auto no-scrollbar scroll-smooth">
+        <main ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar scroll-smooth">
           {activeTab === 'chat' ? (
             <ChatSection currentChat={currentChat} error={error} onRegenerate={handleRegenerate} sessionId={activeChatId} onEdit={handleEdit} onVersionChange={handleVersionChange} />
           ) : (
-            <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-6 py-6 sm:py-8 md:py-12">
-              <div className="mb-6 sm:mb-8 md:mb-10 text-center">
-                <h2 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-800 dark:text-slate-100 tracking-tighter mb-2">
+            <div className="w-full max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8 lg:py-12">
+              <div className="mb-4 sm:mb-6 md:mb-8 lg:mb-10 text-center">
+                <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black text-slate-800 dark:text-slate-100 tracking-tighter mb-1 sm:mb-2">
                   Statutory Calculator
                 </h2>
-                <p className="text-[8px] sm:text-[9px] md:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] sm:tracking-[0.3em]">
+                <p className="text-[7px] sm:text-[8px] md:text-[9px] lg:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.15em] sm:tracking-[0.2em] md:tracking-[0.3em]">
                   Aligned with Nigeria Tax Act 2025 Provisions
                 </p>
-                <div className="flex flex-wrap justify-center mt-4 sm:mt-5 md:mt-6 items-center gap-2 sm:gap-3 md:gap-4">
-                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 sm:p-1 rounded-lg sm:rounded-xl">
+                <div className="flex flex-wrap justify-center mt-3 sm:mt-4 md:mt-5 lg:mt-6 items-center gap-2 sm:gap-3">
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg">
                     {['Individual', 'Company'].map(r => (
                       <button 
                         key={r} 
                         onClick={() => setRole(r)} 
-                        className={`px-3 sm:px-4 md:px-6 py-1.5 sm:py-2 rounded-md sm:rounded-lg text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider sm:tracking-widest transition-all ${
+                        className={`px-2.5 sm:px-3 md:px-4 lg:px-6 py-1 sm:py-1.5 md:py-2 rounded-md text-[7px] sm:text-[8px] md:text-[9px] lg:text-[10px] font-black uppercase tracking-wide sm:tracking-wider md:tracking-widest transition-all ${
                           role === r 
                             ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400' 
                             : 'text-slate-400 dark:text-slate-500'
@@ -358,9 +358,11 @@ export const App = () => {
                   </div>
                   <button 
                     onClick={handleClearCalc} 
-                    className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg sm:rounded-xl transition-all font-black text-[8px] sm:text-[9px] md:text-[10px] uppercase tracking-wider sm:tracking-widest border border-transparent hover:border-rose-100 dark:hover:border-rose-800"
+                    className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 md:px-3 lg:px-4 py-1 sm:py-1.5 md:py-2 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all font-black text-[7px] sm:text-[8px] md:text-[9px] lg:text-[10px] uppercase tracking-wide sm:tracking-wider md:tracking-widest border border-transparent hover:border-rose-100 dark:hover:border-rose-800"
                   >
-                    <RotateCcw size={12} className="sm:w-3.5 sm:h-3.5" /> <span className="hidden xs:inline">Clear All</span><span className="xs:hidden">Clear</span>
+                    <RotateCcw size={10} className="sm:w-3 sm:h-3 md:w-3.5 md:h-3.5" /> 
+                    <span className="hidden sm:inline">Clear All</span>
+                    <span className="sm:hidden">Clear</span>
                   </button>
                 </div>
               </div>
@@ -385,10 +387,11 @@ export const App = () => {
         )}
       </div>
 
-      {sidebarOpen && window.innerWidth < 1024 && (
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
         <div 
           onClick={() => setSidebarOpen(false)} 
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-20" 
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-20 lg:hidden transition-opacity duration-300" 
         />
       )}
     </div>

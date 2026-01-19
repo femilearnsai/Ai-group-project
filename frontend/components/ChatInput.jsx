@@ -52,42 +52,44 @@ export const ChatInput = ({
   };
 
   return (
-    <footer className="p-3 sm:p-4 md:p-6 border-t border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl safe-area-bottom">
-      <div className="max-w-4xl mx-auto flex gap-2 sm:gap-3 items-end">
-        <div className="flex-1 relative">
+    <footer className="p-2 sm:p-3 md:p-4 lg:p-6 border-t border-slate-100 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl safe-area-bottom">
+      <div className="max-w-4xl mx-auto flex gap-2 sm:gap-2.5 md:gap-3 items-end">
+        <div className="flex-1 relative min-w-0">
           <textarea 
             rows={1} 
             value={input} 
             onChange={(e) => { 
               setInput(e.target.value); 
               e.target.style.height = 'auto'; 
-              e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'; 
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; 
             }} 
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())} 
             placeholder={`Ask about ${role} taxes...`} 
-            className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl md:rounded-[1.5rem] px-3 sm:px-4 md:px-6 py-2.5 sm:py-3 md:py-4 pr-11 sm:pr-12 md:pr-14 text-xs sm:text-sm font-bold focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-700 resize-none outline-none transition-all shadow-inner no-scrollbar dark:text-slate-100 dark:placeholder-slate-500" 
+            className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl px-3 sm:px-4 md:px-5 py-2 sm:py-2.5 md:py-3 pr-10 sm:pr-11 md:pr-12 text-[13px] sm:text-sm font-medium focus:border-emerald-500 focus:bg-white dark:focus:bg-slate-700 resize-none outline-none transition-all shadow-inner no-scrollbar dark:text-slate-100 dark:placeholder-slate-500" 
           />
           <button
             onClick={handleVoiceInput}
-            className={`absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 rounded-md sm:rounded-lg transition-all ${
+            className={`absolute right-2 sm:right-2.5 md:right-3 top-1/2 -translate-y-1/2 p-1.5 sm:p-2 rounded-lg transition-all ${
               isListening 
                 ? 'bg-red-500 text-white animate-pulse' 
                 : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600'
             }`}
             title={isListening ? "Stop recording" : "Start voice input"}
+            aria-label={isListening ? "Stop recording" : "Start voice input"}
           >
-            {isListening ? <MicOff size={16} className="sm:w-[18px] sm:h-[18px]" /> : <Mic size={16} className="sm:w-[18px] sm:h-[18px]" />}
+            {isListening ? <MicOff size={14} className="sm:w-4 sm:h-4" /> : <Mic size={14} className="sm:w-4 sm:h-4" />}
           </button>
         </div>
         <button 
           onClick={handleSendMessage} 
           disabled={isLoading || !input.trim()} 
-          className="bg-emerald-600 hover:bg-emerald-700 text-white w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-xl sm:rounded-2xl shadow-lg transition-all flex items-center justify-center active:scale-90 disabled:opacity-50 flex-shrink-0"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-xl sm:rounded-2xl shadow-lg transition-all flex items-center justify-center active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+          aria-label="Send message"
         >
           {isLoading ? (
-            <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
           ) : (
-            <Send size={16} className="sm:w-[18px] sm:h-[18px] md:w-5 md:h-5" />
+            <Send size={14} className="sm:w-4 sm:h-4 md:w-[18px] md:h-[18px] lg:w-5 lg:h-5" />
           )}
         </button>
       </div>
