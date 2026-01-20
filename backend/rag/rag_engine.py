@@ -452,15 +452,25 @@ class RAGEngine:
                 citation_str = f"{section}, {act_name} (p. {page})"
             
             # Create comprehensive source info for frontend
+            source_file = doc.metadata.get("source_file", "Unknown")
+            # Generate URL for PDF viewing with page number
+            # URL format: /documents/{filename}#page={page_number}
+            from urllib.parse import quote
+            encoded_filename = quote(source_file)
+            # PDF.js and most browsers support #page=N for page navigation
+            doc_url = f"/documents/{encoded_filename}#page={page}" if page != "N/A" else f"/documents/{encoded_filename}"
+            
             source_info = {
-                "source_file": doc.metadata.get("source_file", "Unknown"),
+                "source_file": source_file,
                 "act_name": act_name,
                 "page": page,
                 "section": section,
                 "sections_in_content": [c['formatted'] for c in all_citations[:5]],  # Top 5 sections
                 "citation": citation_str,
                 "full_citation": f"{section}, {act_name}, p. {page}",
-                "content_preview": doc.page_content[:200] + "..."
+                "content_preview": doc.page_content[:200] + "...",
+                "document_url": doc_url,  # Link to view the exact page in the PDF
+                "statutory_reference": f"{section} of the {act_name}"  # Formal citation
             }
             sources.append(source_info)
 

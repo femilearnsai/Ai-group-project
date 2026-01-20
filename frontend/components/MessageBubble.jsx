@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Play, Pause, Square, Volume2, AlertCircle, ThumbsUp, ThumbsDown, RefreshCw, Copy, Pencil, Check, Share2, Link, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import config from '../config.js';
+import { SourceCards } from './SourceCards.jsx';
 
 // Simple markdown parser for basic formatting
 const parseMarkdown = (text) => {
@@ -43,7 +44,7 @@ const parseMarkdown = (text) => {
   return html;
 };
 
-export const MessageBubble = ({ role, content, timestamp, onRegenerate, isLastAssistant, messageIndex, sessionId, isGreeting, onEdit, versions, currentVersionIndex, onVersionChange }) => {
+export const MessageBubble = ({ role, content, timestamp, onRegenerate, isLastAssistant, messageIndex, sessionId, isGreeting, onEdit, versions, currentVersionIndex, onVersionChange, sources, usedRetrieval }) => {
   const isUser = role === "human";
   
   // Handle versioned content
@@ -439,6 +440,11 @@ export const MessageBubble = ({ role, content, timestamp, onRegenerate, isLastAs
             className="break-words font-medium markdown-content dark:prose-invert"
             dangerouslySetInnerHTML={{ __html: formattedContent }}
           />
+        )}
+        
+        {/* Source Citations - Display clickable links to statutory references */}
+        {!isUser && sources && sources.length > 0 && usedRetrieval && (
+          <SourceCards sources={sources} isExpanded={false} />
         )}
         
         {/* Version toggle for regenerated responses */}

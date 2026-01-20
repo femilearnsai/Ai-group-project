@@ -156,11 +156,13 @@ export const App = () => {
         setActiveChatId(data.session_id);
       }
 
-      // Add assistant message with timestamp from API
+      // Add assistant message with timestamp and sources from API
       const assistantMessage = { 
         role: 'assistant', 
         content: data.response,
-        timestamp: data.timestamp
+        timestamp: data.timestamp,
+        sources: data.sources || [],  // Include statutory reference sources
+        used_retrieval: data.used_retrieval || false
       };
       setCurrentChat(prev => [...prev, assistantMessage]);
 

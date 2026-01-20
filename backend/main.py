@@ -15,7 +15,8 @@ if str(backend_dir) not in sys.path:
 from rag.rag_engine import RAGEngine
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -588,6 +589,76 @@ async def text_to_speech(request: TTSRequest):
             detail=f"Error generating speech: {str(e)}"
         )
         
+@app.get("/documents")
+async def list_documents():
+    """
+    List all available PDF documents
+    Returns document names and their URLs for linking
+    """
+    docs_dir = Path(__file__).parent / "rag" / "docs"
+    
+    if not docs_dir.exists():
+        return {"documents": []}
+    
+    documents = []
+    for pdf_file in docs_dir.glob("*.pdf"):
+        # Create URL-safe filename
+        safe_name = pdf_file.name.replace(" ", "%20")
+        documents.append({
+            "filename": pdf_file.name,
+            "display_name": pdf_file.stem,
+            "url": f"/documents/{safe_name}"
+        })
+    
+    return {"documents": documents}
+
+
+@app.get("/documents/{filename:path}")
+async def serve_document(filename: str, page: int = None):
+    """
+    Serve a PDF document by filename
+    
+    Args:
+        filename: The PDF filename to serve
+        page: Optional page number for PDF viewers that support page fragments
+    
+    Returns:
+        The PDF file with appropriate headers for inline viewing
+    """
+    # Decode URL-encoded filename
+    from urllib.parse import unquote
+    decoded_filename = unquote(filename)
+    
+    docs_dir = Path(__file__).parent / "rag" / "docs"
+    file_path = docs_dir / decoded_filename
+    
+    # Security: ensure the file is within docs directory
+    try:
+        file_path = file_path.resolve()
+        docs_dir = docs_dir.resolve()
+        if not str(file_path).startswith(str(docs_dir)):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Document not found: {decoded_filename}")
+    
+    if not file_path.suffix.lower() == ".pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    
+    # Return PDF with inline disposition for browser viewing
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        filename=decoded_filename,
+        headers={
+            "Content-Disposition": f"inline; filename=\"{decoded_filename}\"",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
 @app.post("/healthcheck")
 async def healthcheck():
     return {"status": "ok"}

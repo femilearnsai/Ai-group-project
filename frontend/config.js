@@ -23,5 +23,6 @@ export default {
     health: `${API_BASE_URL}/health`,
     feedback: `${API_BASE_URL}/feedback`,
     regenerate: `${API_BASE_URL}/regenerate`,
+    documents: `${API_BASE_URL}/documents`,
   }
 };
