@@ -11,3 +11,7 @@ fastapi
 uvicorn
 certifi
 openai
+httpx
+pyjwt
+email-validator
+supabase

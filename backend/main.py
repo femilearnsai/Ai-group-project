@@ -12,18 +12,55 @@ backend_dir = Path(__file__).parent.resolve()
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
+# Load environment variables from backend/.env file
+from dotenv import load_dotenv
+env_path = backend_dir / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment variables from {env_path}")
+else:
+    print(f"⚠️ No .env file found at {env_path}")
+    
+from supabase import create_client, Client
 from rag.rag_engine import RAGEngine
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 import uuid
 from openai import OpenAI
 import io
+import httpx
+import hashlib
+import secrets
+import jwt
+
+# Database imports
+from database import (
+    get_db, get_db_session, get_user_by_id, get_user_by_email,
+    create_user, update_user_last_login
+)
+
+# JWT Configuration
+JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+
+# Security
+security = HTTPBearer(auto_error=False)
+
+# Paystack configuration
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
+PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY", "")
+PAYSTACK_BASE_URL = "https://api.paystack.co"
 
 # Global RAG engine instance
 # rag_engine: Optional[RAGEngine] = None
@@ -140,6 +177,101 @@ class RegenerateRequest(BaseModel):
     user_role: Optional[str] = Field("taxpayer", description="User role")
 
 
+# =============================================
+# AUTHENTICATION MODELS
+# =============================================
+
+class SignupRequest(BaseModel):
+    """Request model for user signup"""
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., min_length=6, description="Password (min 6 characters)")
+    username: str = Field(..., min_length=2, max_length=30, description="Username")
+
+
+class LoginRequest(BaseModel):
+    """Request model for user login"""
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class AuthResponse(BaseModel):
+    """Response model for authentication"""
+    status: str
+    message: str
+    token: Optional[str] = None
+    user: Optional[Dict[str, Any]] = None
+
+
+class UserProfile(BaseModel):
+    """User profile model"""
+    id: str
+    email: str
+    username: str
+    created_at: str
+    last_login: Optional[str] = None
+
+
+# =============================================
+# AUTHENTICATION HELPER FUNCTIONS
+# =============================================
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA-256 with salt"""
+    salt = JWT_SECRET[:16]
+    return hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify password against hash"""
+    return hash_password(password) == hashed
+
+
+def create_jwt_token(user_id: str, email: str) -> str:
+    """Create JWT token for authenticated user"""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
+    """Decode and verify JWT token"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Optional[Dict[str, Any]]:
+    """Get current user from JWT token"""
+    if not credentials:
+        return None
+    
+    token = credentials.credentials
+    payload = decode_jwt_token(token)
+    
+    if not payload:
+        return None
+    
+    user_id = payload.get("sub")
+    if user_id:
+        db = get_db_session()
+        try:
+            user = get_user_by_id(db, user_id)
+            if user:
+                return user.to_dict()
+        finally:
+            db.close()
+    
+    return None
+
+
 # Feedback storage (in production, use a database)
 feedback_store: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -164,6 +296,254 @@ async def health_check():
         "message": "All systems operational" if rag_engine else "RAG engine not initialized",
         "rag_initialized": rag_engine is not None
     }
+
+
+# =============================================
+# AUTHENTICATION ENDPOINTS
+# =============================================
+
+@app.post("/auth/signup", response_model=AuthResponse)
+async def signup(request: SignupRequest):
+    """
+    Register a new user
+    
+    Creates a new user account with email and password
+    """
+    db = get_db_session()
+    try:
+        # Check if email already exists
+        existing_user = get_user_by_email(db, request.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail="An account with this email already exists"
+            )
+        
+        # Create new user
+        user_id = str(uuid.uuid4())
+        hashed_password = hash_password(request.password)
+        
+        user = create_user(
+            db=db,
+            user_id=user_id,
+            email=request.email,
+            username=request.username,
+            password=hashed_password,
+            auth_provider="local"
+        )
+        
+        # Create JWT token
+        token = create_jwt_token(user_id, user.email)
+        
+        print(f"👤 New user registered: {request.email}")
+        
+        return AuthResponse(
+            status="success",
+            message="Account created successfully",
+            token=token,
+            user={
+                "id": user.id,
+                "email": user.email,
+                "username": user.username,
+                "created_at": user.created_at.isoformat()
+            }
+        )
+    finally:
+        db.close()
+
+
+@app.post("/auth/login", response_model=AuthResponse)
+async def login(request: LoginRequest):
+    """
+    Authenticate user and return JWT token
+    """
+    db = get_db_session()
+    try:
+        # Find user by email
+        user = get_user_by_email(db, request.email)
+        
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid email or password"
+            )
+        
+        # Check if user has a password (not OAuth-only user)
+        if not user.password:
+            raise HTTPException(
+                status_code=401,
+                detail="Please use Google Sign-In for this account"
+            )
+        
+        # Verify password
+        if not verify_password(request.password, user.password):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid email or password"
+            )
+        
+        # Update last login
+        user = update_user_last_login(db, user)
+        
+        # Create JWT token
+        token = create_jwt_token(user.id, user.email)
+        
+        print(f"🔑 User logged in: {request.email}")
+        
+        return AuthResponse(
+            status="success",
+            message="Login successful",
+            token=token,
+            user={
+                "id": user.id,
+                "email": user.email,
+                "username": user.username or user.email.split("@")[0],
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "last_login": user.last_login.isoformat() if user.last_login else None
+            }
+        )
+    finally:
+        db.close()
+
+
+@app.get("/auth/me")
+async def get_current_user_profile(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """
+    Get current authenticated user's profile
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated"
+        )
+    
+    return {
+        "status": "success",
+        "user": {
+            "id": current_user["id"],
+            "email": current_user["email"],
+            "username": current_user.get("username", current_user["email"].split("@")[0]),
+            "created_at": current_user["created_at"],
+            "last_login": current_user.get("last_login")
+        }
+    }
+
+
+@app.post("/auth/logout")
+async def logout():
+    """
+    Logout endpoint (client should discard the token)
+    """
+    return {
+        "status": "success",
+        "message": "Logged out successfully"
+    }
+
+
+class GoogleAuthRequest(BaseModel):
+    """Request model for Google OAuth"""
+    credential: str = Field(..., description="Google ID token from Sign-In")
+
+
+@app.post("/auth/google")
+async def google_auth(request: GoogleAuthRequest):
+    """
+    Authenticate user with Google Sign-In
+    
+    Verifies the Google ID token and creates/logs in the user
+    """
+    db = get_db_session()
+    try:
+        # Verify Google ID token
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={request.credential}"
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid Google token"
+                )
+            
+            google_data = response.json()
+            
+            # Verify the token is for our app (if GOOGLE_CLIENT_ID is set)
+            if GOOGLE_CLIENT_ID and google_data.get("aud") != GOOGLE_CLIENT_ID:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token was not issued for this application"
+                )
+            
+            email = google_data.get("email")
+            if not email:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Email not provided by Google"
+                )
+            
+            # Check if user exists
+            existing_user = get_user_by_email(db, email)
+            
+            if existing_user:
+                # Login existing user
+                existing_user = update_user_last_login(db, existing_user)
+                token = create_jwt_token(existing_user.id, existing_user.email)
+                print(f"🔑 Google user logged in: {email}")
+                
+                return {
+                    "status": "success",
+                    "message": "Login successful",
+                    "token": token,
+                    "user": {
+                        "id": existing_user.id,
+                        "email": existing_user.email,
+                        "username": existing_user.username or existing_user.email.split("@")[0],
+                        "created_at": existing_user.created_at.isoformat() if existing_user.created_at else None,
+                        "last_login": existing_user.last_login.isoformat() if existing_user.last_login else None
+                    }
+                }
+            else:
+                # Create new user
+                user_id = str(uuid.uuid4())
+                google_name = google_data.get("name", email.split("@")[0])
+                
+                new_user = create_user(
+                    db=db,
+                    user_id=user_id,
+                    email=email,
+                    username=google_name,
+                    password=None,
+                    auth_provider="google"
+                )
+                
+                # Update last login for new user
+                new_user = update_user_last_login(db, new_user)
+                
+                token = create_jwt_token(user_id, email.lower())
+                print(f"👤 New Google user registered: {email}")
+                
+                return {
+                    "status": "success",
+                    "message": "Account created successfully",
+                    "token": token,
+                    "user": {
+                        "id": new_user.id,
+                        "email": new_user.email,
+                        "username": new_user.username,
+                        "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
+                        "last_login": new_user.last_login.isoformat() if new_user.last_login else None
+                    }
+                }
+                
+    except httpx.RequestError as e:
+        print(f"Google auth error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to verify Google token"
+        )
+    finally:
+        db.close()
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -662,6 +1042,303 @@ async def serve_document(filename: str, page: int = None):
 @app.post("/healthcheck")
 async def healthcheck():
     return {"status": "ok"}
+
+
+# =============================================
+# PAYSTACK "BUY ME A COFFEE" ENDPOINTS
+# =============================================
+
+class DonationRequest(BaseModel):
+    """Request model for initiating a donation"""
+    email: str = Field(..., description="Donor's email address")
+    amount: int = Field(..., description="Amount in Naira (will be converted to kobo)", ge=100)
+    name: Optional[str] = Field(None, description="Donor's name (optional)")
+    message: Optional[str] = Field(None, description="Optional message from donor")
+
+
+class DonationResponse(BaseModel):
+    """Response model for donation initialization"""
+    status: bool
+    message: str
+    authorization_url: Optional[str] = None
+    access_code: Optional[str] = None
+    reference: Optional[str] = None
+
+
+# Store donations (in production, use a database)
+donations_store: Dict[str, Dict[str, Any]] = {}
+
+
+@app.get("/donate/config")
+async def get_donation_config():
+    """
+    Get Paystack public key and donation options for frontend
+    """
+    return {
+        "public_key": PAYSTACK_PUBLIC_KEY,
+        "currency": "NGN",
+        "coffee_prices": [
+            {"label": "☕ 1 Coffee", "amount": 1000, "description": "Buy me a coffee!"},
+            {"label": "☕☕ 2 Coffees", "amount": 2000, "description": "Extra caffeine boost!"},
+            {"label": "☕☕☕ 3 Coffees", "amount": 3000, "description": "You're amazing!"},
+            {"label": "🎉 Custom", "amount": None, "description": "Choose your amount"},
+        ],
+        "recipient_name": "Nigerian Tax AI Assistant Team",
+        "thank_you_message": "Thank you for supporting the Nigerian Tax AI Assistant! Your contribution helps us keep improving."
+    }
+
+
+@app.post("/donate/initialize", response_model=DonationResponse)
+async def initialize_donation(request: DonationRequest):
+    """
+    Initialize a Paystack payment for donation
+    
+    This creates a payment session and returns an authorization URL
+    that the user should be redirected to for payment.
+    """
+    if not PAYSTACK_SECRET_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Payment service not configured. Please set PAYSTACK_SECRET_KEY."
+        )
+    
+    # Generate unique reference
+    reference = f"coffee_{uuid.uuid4().hex[:12]}"
+    
+    # Convert Naira to Kobo (Paystack uses kobo)
+    amount_in_kobo = request.amount * 100
+    
+    # Prepare metadata
+    metadata = {
+        "donor_name": request.name or "Anonymous",
+        "message": request.message or "",
+        "donation_type": "buy_me_a_coffee",
+        "custom_fields": [
+            {
+                "display_name": "Donor Name",
+                "variable_name": "donor_name",
+                "value": request.name or "Anonymous"
+            },
+            {
+                "display_name": "Message",
+                "variable_name": "message",
+                "value": request.message or "No message"
+            }
+        ]
+    }
+    
+    # Initialize transaction with Paystack
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{PAYSTACK_BASE_URL}/transaction/initialize",
+                headers={
+                    "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "email": request.email,
+                    "amount": amount_in_kobo,
+                    "reference": reference,
+                    "currency": "NGN",
+                    "metadata": metadata,
+                    "callback_url": os.getenv("PAYSTACK_CALLBACK_URL", "http://localhost:5173/donate/callback")
+                }
+            )
+            
+            result = response.json()
+            
+            if result.get("status"):
+                # Store donation info
+                donations_store[reference] = {
+                    "email": request.email,
+                    "amount": request.amount,
+                    "name": request.name,
+                    "message": request.message,
+                    "status": "pending",
+                    "created_at": datetime.now().isoformat()
+                }
+                
+                print(f"☕ Donation initialized: {reference} - ₦{request.amount} from {request.email}")
+                
+                return DonationResponse(
+                    status=True,
+                    message="Payment initialized successfully",
+                    authorization_url=result["data"]["authorization_url"],
+                    access_code=result["data"]["access_code"],
+                    reference=reference
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=result.get("message", "Failed to initialize payment")
+                )
+                
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Payment service unavailable: {str(e)}"
+        )
+
+
+@app.api_route("/donate/verify/{reference}", methods=["GET", "POST"])
+async def verify_donation(reference: str, request: Request):
+    """
+    Verify a donation payment status
+    
+    Call this after payment callback to confirm the transaction was successful.
+    Accepts both GET and POST (POST can include donor name/message for inline payments)
+    """
+    if not PAYSTACK_SECRET_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Payment service not configured"
+        )
+    
+    # Get optional body data (for inline payments)
+    donor_name = "Anonymous"
+    donor_message = ""
+    try:
+        if request.method == "POST":
+            body = await request.json()
+            donor_name = body.get("name", "Anonymous")
+            donor_message = body.get("message", "")
+    except:
+        pass
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{PAYSTACK_BASE_URL}/transaction/verify/{reference}",
+                headers={
+                    "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}"
+                }
+            )
+            
+            result = response.json()
+            
+            if result.get("status") and result.get("data"):
+                data = result["data"]
+                payment_status = data.get("status")
+                
+                # Update or create stored donation
+                if reference in donations_store:
+                    donations_store[reference]["status"] = payment_status
+                    donations_store[reference]["verified_at"] = datetime.now().isoformat()
+                    donations_store[reference]["payment_data"] = {
+                        "gateway_response": data.get("gateway_response"),
+                        "channel": data.get("channel"),
+                        "paid_at": data.get("paid_at")
+                    }
+                else:
+                    # For inline payments, create the donation record now
+                    donations_store[reference] = {
+                        "email": data.get("customer", {}).get("email"),
+                        "amount": data.get("amount", 0) // 100,
+                        "name": donor_name,
+                        "message": donor_message,
+                        "status": payment_status,
+                        "created_at": datetime.now().isoformat(),
+                        "verified_at": datetime.now().isoformat(),
+                        "payment_data": {
+                            "gateway_response": data.get("gateway_response"),
+                            "channel": data.get("channel"),
+                            "paid_at": data.get("paid_at")
+                        }
+                    }
+                
+                if payment_status == "success":
+                    print(f"☕ Donation successful: {reference} - ₦{data.get('amount', 0) // 100}")
+                    return {
+                        "status": "success",
+                        "message": "Thank you for your donation! ☕",
+                        "amount": data.get("amount", 0) // 100,  # Convert back to Naira
+                        "reference": reference,
+                        "paid_at": data.get("paid_at"),
+                        "donor_email": data.get("customer", {}).get("email")
+                    }
+                else:
+                    return {
+                        "status": payment_status,
+                        "message": f"Payment {payment_status}",
+                        "reference": reference
+                    }
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Transaction not found"
+                )
+                
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Payment verification failed: {str(e)}"
+        )
+
+
+@app.post("/donate/webhook")
+async def paystack_webhook(request: Request):
+    """
+    Paystack webhook endpoint for payment notifications
+    
+    Configure this URL in your Paystack dashboard to receive
+    real-time payment notifications.
+    """
+    # Verify webhook signature (in production, verify the signature)
+    # signature = request.headers.get("x-paystack-signature")
+    
+    try:
+        payload = await request.json()
+        event = payload.get("event")
+        data = payload.get("data", {})
+        
+        if event == "charge.success":
+            reference = data.get("reference")
+            amount = data.get("amount", 0) // 100  # Convert kobo to Naira
+            email = data.get("customer", {}).get("email")
+            
+            # Update donation status
+            if reference in donations_store:
+                donations_store[reference]["status"] = "success"
+                donations_store[reference]["webhook_received"] = datetime.now().isoformat()
+            
+            print(f"☕ Webhook: Donation received - {reference} - ₦{amount} from {email}")
+            
+        return {"status": "ok"}
+        
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/donate/stats")
+async def get_donation_stats():
+    """
+    Get donation statistics (public endpoint for transparency)
+    """
+    successful_donations = [d for d in donations_store.values() if d.get("status") == "success"]
+    
+    total_amount = sum(d.get("amount", 0) for d in successful_donations)
+    total_count = len(successful_donations)
+    
+    # Get recent donors (anonymized)
+    recent_donors = []
+    for d in sorted(successful_donations, key=lambda x: x.get("created_at", ""), reverse=True)[:5]:
+        recent_donors.append({
+            "name": d.get("name", "Anonymous") or "Anonymous",
+            "amount": d.get("amount", 0),
+            "message": d.get("message", "")[:100] if d.get("message") else None,
+            "date": d.get("created_at", "")[:10]
+        })
+    
+    return {
+        "total_coffees": total_count,
+        "total_amount": total_amount,
+        "currency": "NGN",
+        "recent_supporters": recent_donors,
+        "goal": 50000,  # Example goal
+        "goal_progress": min(100, (total_amount / 50000) * 100) if total_amount > 0 else 0
+    }
 
 
 # Exception handlers

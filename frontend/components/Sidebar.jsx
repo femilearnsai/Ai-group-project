@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Calculator, Plus, Search, User, Trash2, Wrench, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calculator, Plus, Search, User, Trash2, Wrench, Users, ChevronDown, ChevronUp, LogIn, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext.jsx';
 
 export const Sidebar = ({ 
   sidebarOpen, 
@@ -12,8 +13,10 @@ export const Sidebar = ({
   setActiveChatId, 
   setActiveTab,
   deleteChat,
-  activeTab
+  activeTab,
+  onLoginClick
 }) => {
+  const { user, isAuthenticated, logout } = useAuth();
   return (
     <aside className={`fixed inset-y-0 left-0 w-[280px] xs:w-[300px] sm:w-80 md:w-[320px] lg:w-72 xl:w-80 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 z-30 transition-transform duration-300 ease-out safe-area-left ${
       sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -100,6 +103,40 @@ export const Sidebar = ({
           >
             <Wrench size={12} className="sm:w-3.5 sm:h-3.5" /> Fiscal Toolkit
           </button>
+          
+          {/* Auth Section */}
+          {isAuthenticated ? (
+            <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-2 sm:px-2.5 md:px-3 py-2 sm:py-2.5 bg-slate-50 dark:bg-slate-800/50">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {user?.username?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] sm:text-[10px] md:text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
+                      {user?.username || user?.email}
+                    </p>
+                    <p className="text-[7px] sm:text-[8px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider">
+                      Signed In
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={logout}
+                  className="w-full mt-2 py-1.5 sm:py-2 rounded-lg border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors flex items-center justify-center gap-1.5 text-[8px] sm:text-[9px] md:text-[10px] font-bold uppercase tracking-wider"
+                >
+                  <LogOut size={12} className="sm:w-3.5 sm:h-3.5" /> Sign Out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={onLoginClick}
+              className="w-full py-2 sm:py-2.5 md:py-3 rounded-lg sm:rounded-xl border-2 border-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 flex items-center justify-center gap-1.5 sm:gap-2 transition-all font-black text-[8px] sm:text-[9px] md:text-[10px] uppercase tracking-wider"
+            >
+              <LogIn size={12} className="sm:w-3.5 sm:h-3.5" /> Sign In
+            </button>
+          )}
           
           {/* Team Credits */}
           <TeamCredits />

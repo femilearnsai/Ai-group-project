@@ -6,6 +6,10 @@ import { ChatSection } from './components/ChatSection.jsx';
 import { ChatInput } from './components/ChatInput.jsx';
 import { CalculatorDashboard } from './components/CalculatorDashboard.jsx';
 import { RoleSelector } from './components/RoleSelector.jsx';
+import { BuyMeCoffee, BuyMeCoffeeButton } from './components/BuyMeCoffee.jsx';
+import { AuthModal } from './components/AuthModal.jsx';
+import { SignupPrompt } from './components/SignupPrompt.jsx';
+import { useAuth } from './contexts/AuthContext.jsx';
 import { INITIAL_CALC_INPUTS } from './constants.js';
 import { getRoleGreeting } from './utils.js';
 import config from './config.js';
@@ -23,8 +27,26 @@ export const App = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [calcInputs, setCalcInputs] = useState(INITIAL_CALC_INPUTS);
   const [currentChat, setCurrentChat] = useState([]);
+  const [showDonation, setShowDonation] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showSignupPrompt, setShowSignupPrompt] = useState(false);
 
+  const { isAuthenticated, user } = useAuth();
   const scrollRef = useRef(null);
+
+  // Check if user has donated (for hiding the coffee popup permanently)
+  const hasDonated = localStorage.getItem('user_has_donated') === 'true';
+
+  // Check for Paystack callback and auto-open donation modal
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const reference = urlParams.get('reference') || urlParams.get('trxref');
+    
+    if (reference) {
+      // Payment callback detected, open donation modal to show result
+      setShowDonation(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -188,6 +210,46 @@ export const App = () => {
         }
       }
 
+      // Track query count for non-authenticated users and show signup prompt
+      if (!isAuthenticated) {
+        const queryCount = parseInt(localStorage.getItem('guest_query_count') || '0') + 1;
+        localStorage.setItem('guest_query_count', queryCount.toString());
+        
+        // Show signup prompt after 2 queries (and not dismissed permanently)
+        if (queryCount === 2 && !localStorage.getItem('signup_prompt_dismissed')) {
+          setTimeout(() => setShowSignupPrompt(true), 1000); // Delay for better UX
+        }
+        
+        // Show Buy Me a Coffee popup every 2 AI responses for guests
+        const coffeeCount = parseInt(localStorage.getItem('guest_coffee_count') || '0') + 1;
+        localStorage.setItem('guest_coffee_count', coffeeCount.toString());
+        
+        if (coffeeCount % 2 === 0) {
+          setTimeout(() => setShowDonation(true), 1500); // Slightly longer delay
+        }
+      } else {
+        // Authenticated user - show coffee popup after 5 queries, once per day
+        if (!hasDonated) {
+          const today = new Date().toDateString();
+          const lastCoffeeDate = localStorage.getItem('last_coffee_popup_date');
+          const authCoffeeCount = parseInt(localStorage.getItem('auth_coffee_count') || '0') + 1;
+          localStorage.setItem('auth_coffee_count', authCoffeeCount.toString());
+          
+          // Reset count if new day
+          if (lastCoffeeDate !== today) {
+            localStorage.setItem('auth_coffee_count', '1');
+          }
+          
+          const currentCount = parseInt(localStorage.getItem('auth_coffee_count') || '1');
+          
+          // Show popup after 5 queries and only once per day
+          if (currentCount === 5 && lastCoffeeDate !== today) {
+            localStorage.setItem('last_coffee_popup_date', today);
+            setTimeout(() => setShowDonation(true), 1500);
+          }
+        }
+      }
+
       return data;
     } catch (err) {
       setError('Failed to get response. Please try again.');
@@ -317,6 +379,7 @@ export const App = () => {
         setActiveTab={setActiveTab}
         deleteChat={deleteChat}
         activeTab={activeTab}
+        onLoginClick={() => setShowAuthModal(true)}
       />
 
       <div className="flex-1 flex flex-col h-full min-w-0 bg-white dark:bg-slate-900 relative transition-colors duration-300">
@@ -388,6 +451,26 @@ export const App = () => {
           />
         )}
       </div>
+
+      {/* Buy Me a Coffee */}
+      <BuyMeCoffeeButton onClick={() => setShowDonation(true)} />
+      <BuyMeCoffee isOpen={showDonation} onClose={() => setShowDonation(false)} />
+
+      {/* Auth Modal */}
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+      {/* Signup Prompt for Guest Users */}
+      <SignupPrompt 
+        isOpen={showSignupPrompt} 
+        onClose={() => {
+          setShowSignupPrompt(false);
+          localStorage.setItem('signup_prompt_dismissed', 'true');
+        }}
+        onSignup={() => {
+          setShowSignupPrompt(false);
+          setShowAuthModal(true);
+        }}
+      />
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (

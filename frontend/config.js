@@ -24,5 +24,20 @@ export default {
     feedback: `${API_BASE_URL}/feedback`,
     regenerate: `${API_BASE_URL}/regenerate`,
     documents: `${API_BASE_URL}/documents`,
-  }
+    // Donation endpoints
+    donateConfig: `${API_BASE_URL}/donate/config`,
+    donateInitialize: `${API_BASE_URL}/donate/initialize`,
+    donateVerify: `${API_BASE_URL}/donate/verify`,
+    donateStats: `${API_BASE_URL}/donate/stats`,
+    // Auth endpoints
+    signup: `${API_BASE_URL}/auth/signup`,
+    login: `${API_BASE_URL}/auth/login`,
+    logout: `${API_BASE_URL}/auth/logout`,
+    me: `${API_BASE_URL}/auth/me`,
+    googleAuth: `${API_BASE_URL}/auth/google`,
+  },
+  // Google OAuth Client ID (set in environment or replace with your actual client ID)
+  GOOGLE_CLIENT_ID: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
+  // Paystack Public Key (set in environment)
+  PAYSTACK_PUBLIC_KEY: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || ''
 };
