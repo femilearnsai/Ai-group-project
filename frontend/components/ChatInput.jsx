@@ -165,9 +165,9 @@ export const ChatInput = ({
           </button>
         </div>
         
-        {/* Helper Text */}
+        {/* Beta Disclaimer */}
         <p className="mt-2 text-center text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-medium">
-          Press <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[9px] font-bold">Enter</kbd> to send • <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[9px] font-bold">Shift+Enter</kbd> for new line
+          This product is currently in beta. Please do not enter any personal or sensitive financial information.
         </p>
       </div>
     </footer>
