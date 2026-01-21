@@ -1348,6 +1348,112 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
 
         print("RAG Engine initialized and ready!")
 
+    def _get_rejection_response(self, language: str = "English") -> str:
+        """Get the standard rejection response in the appropriate language."""
+        responses = {
+            "English": """I'm sorry, but I can only assist with questions related to Nigerian tax laws and regulations.
+
+Please feel free to ask me anything about Nigerian taxes, such as:
+• Personal Income Tax (PIT) rates and calculations
+• Company Income Tax (CIT) obligations
+• Withholding Tax (WHT) requirements
+• Value Added Tax (VAT) compliance
+• Capital Gains Tax (CGT)
+• Tax Reform Bills interpretation
+• FIRS procedures and filing requirements
+
+How can I help you with Nigerian tax matters today?""",
+            
+            "Nigerian Pidgin": """Abeg, I fit only helep you wit questions wey concern Nigerian tax laws. I no fit helep you wit dat topic.
+
+You fit ask me anytin about Nigerian taxes, like:
+• Personal Income Tax (PIT) rates
+• Company Income Tax (CIT)
+• Withholding Tax (WHT)
+• VAT compliance
+• Capital Gains Tax
+
+Wetin you wan know about Nigerian tax today?""",
+            
+            "Hausa": """Yi hakuri, zan iya taimaka kawai da tambayoyi game da dokokin haraji na Najeriya.
+
+Don Allah ku tambayi ni game da harajin Najeriya. Yaya zan taimake ku da al'amuran haraji na Najeriya yau?""",
+            
+            "Yoruba": """Ẹ má bínú, mo lè ràn yín lọ́wọ́ nìkan pẹ̀lú àwọn ìbéèrè tó ní í ṣe pẹ̀lú òfin owó-orí Nàìjíríà.
+
+Báwo ni mo ṣe lè ràn yín lọ́wọ́ pẹ̀lú ọ̀rọ̀ owó-orí Nàìjíríà lónìí?""",
+            
+            "Igbo": """Ndo, m nwere ike inyere gị aka naanị ajụjụ metụtara iwu ụtụ isi nke Naịjirịa.
+
+Kedu ka m ga-esi nyere gị aka na okwu ụtụ isi Naịjirịa taa?"""
+        }
+        return responses.get(language, responses["English"])
+
+    def _is_message_allowed(self, message: str) -> bool:
+        """
+        Strict check to determine if a message should be processed.
+        Returns True ONLY if the message is clearly tax-related or a simple greeting.
+        This is the FINAL GATE - if this returns False, the message is rejected.
+        """
+        message_lower = message.lower().strip()
+        
+        # Very short messages (1-3 words) that are greetings are allowed
+        words = message_lower.split()
+        if len(words) <= 3:
+            greetings = ['hello', 'hi', 'hey', 'good', 'morning', 'afternoon', 'evening',
+                        'help', 'thanks', 'thank', 'please', 'sannu', 'ndewo', 'bawo', 
+                        'how', 'wetin', 'ẹ', 'kedu']
+            if any(g in message_lower for g in greetings):
+                return True
+        
+        # Tax-related keywords - MUST contain at least one to proceed
+        tax_keywords = [
+            # Core tax terms
+            'tax', 'taxes', 'taxation', 'taxable', 'taxed', 'taxpayer', 'taxpayers',
+            # Tax types
+            'paye', 'pit', 'cit', 'vat', 'wht', 'cgt', 'ppt', 'edt',
+            'withholding', 'income tax', 'company tax', 'corporate tax',
+            'capital gain', 'value added', 'petroleum profit', 'education tax',
+            'stamp duty', 'stamp duties', 'minimum tax',
+            # Authorities and Acts
+            'firs', 'revenue service', 'tax authority', 'nrs', 'jrb', 'joint revenue',
+            'nigeria tax act', 'tax act 2025', 'tax administration', 'tax reform',
+            'tax bill', 'tax law', 'tax laws',
+            # Filing and compliance
+            'filing', 'file return', 'tax return', 'annual return', 'tax filing',
+            'compliance', 'non-compliance', 'tax compliance',
+            'tin', 'tax identification',
+            'assessment', 'tax assessment', 'self assessment',
+            'penalty', 'penalties', 'tax penalty', 'offence', 'offenses',
+            # Calculations and rates
+            'tax rate', 'tax rates', 'tax bracket', 'tax band',
+            'deduction', 'deductions', 'allowance', 'allowances', 'relief', 'reliefs',
+            'exemption', 'exemptions', 'tax exempt',
+            'gross income', 'taxable income', 'chargeable income', 'assessable income',
+            'turnover', 'revenue threshold',
+            # Business terms in tax context
+            'remittance', 'remit', 'tax remittance',
+            'invoice', 'tax invoice', 'vat invoice',
+            'employer', 'employee tax', 'salary tax', 'paye tax',
+            'dividend', 'interest income', 'royalty', 'rent income',
+            'contractor', 'consultancy fee', 'withholding on',
+            # Nigerian context
+            'naira', '₦', 'nigerian tax', 'nigeria tax', 'fct', 'lagos tax',
+            # Specific questions
+            'how much tax', 'calculate tax', 'tax calculation', 'compute tax',
+            'pay tax', 'owe tax', 'tax owed', 'tax liability', 'tax payable',
+            'tax due', 'tax deadline', 'when to file', 'when to pay',
+            'register for tax', 'tax registration'
+        ]
+        
+        # Check if ANY tax keyword is present
+        for keyword in tax_keywords:
+            if keyword in message_lower:
+                return True
+        
+        # If no tax keywords found, reject the message
+        return False
+
     def chat(self, message: str, session_id: str = "default", user_role: str = "taxpayer") -> Dict[str, Any]:
         """
         Chat with the RAG agent
@@ -1364,6 +1470,22 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
             raise RuntimeError(
                 "Agent not initialized. Call initialize() first.")
 
+        # Detect language from the user's message FIRST
+        detected_language = self._detect_language(message)
+
+        # ============================================================
+        # HARD GATE: Reject non-tax questions BEFORE any LLM processing
+        # This is deterministic and cannot be bypassed
+        # ============================================================
+        if not self._is_message_allowed(message):
+            return {
+                "response": self._get_rejection_response(detected_language),
+                "sources": [],
+                "used_retrieval": False,
+                "rejected": True
+            }
+        # ============================================================
+
         # Validate user_role
         valid_roles = ["tax_lawyer", "taxpayer", "company"]
         if user_role not in valid_roles:
@@ -1378,9 +1500,6 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
             existing_messages = existing_state.values.get("messages", [])
         except Exception:
             existing_messages = []
-
-        # Detect language from the user's message
-        detected_language = self._detect_language(message)
         
         # Append new message to existing conversation with timestamp and language
         timestamp = datetime.now().isoformat()
