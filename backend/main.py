@@ -68,8 +68,12 @@ PAYSTACK_BASE_URL = "https://api.paystack.co"
 # Global RAG engine instance
 # rag_engine: Optional[RAGEngine] = None
 
-# Session storage (to use database in production)
+# Session storage with owner tracking
+# Format: {session_id: {"owner_id": user_id or None, "created_at": ..., ...}}
 sessions: Dict[str, Dict[str, Any]] = {}
+
+# Track which sessions belong to which user (for fast lookup)
+user_session_map: Dict[str, set] = {}  # {user_id: {session_id1, session_id2, ...}}
 
 rag_engine = RAGEngine()
 openai_client = OpenAI()
@@ -636,23 +640,26 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
         )
 
     db = get_db_session()
+    user_id = current_user["user_id"] if current_user else None
     
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
 
     # SECURITY: Verify session ownership if a session_id was provided
     if request.session_id:
-        session_owner = get_session_owner(db, request.session_id)
-        if session_owner:
-            # This session belongs to someone
-            if current_user:
-                if session_owner != current_user["user_id"]:
-                    raise HTTPException(
-                        status_code=403, 
-                        detail="Access denied: This conversation belongs to another user"
-                    )
-            else:
-                # Guest trying to access an owned session
+        # Check in-memory ownership first
+        if request.session_id in sessions:
+            session_owner_id = sessions[request.session_id].get("owner_id")
+            if session_owner_id and session_owner_id != user_id:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Access denied: This conversation belongs to another user"
+                )
+        
+        # Also check database ownership
+        db_session_owner = get_session_owner(db, request.session_id)
+        if db_session_owner:
+            if db_session_owner != user_id:
                 raise HTTPException(
                     status_code=403, 
                     detail="Access denied: This conversation belongs to another user"
@@ -661,19 +668,25 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
     # Track if this is a new session
     is_new_session = session_id not in sessions
 
-    # Update session info in memory
+    # Update session info in memory WITH OWNER TRACKING
     if is_new_session:
         sessions[session_id] = {
+            "owner_id": user_id,  # Track who owns this session
             "created_at": datetime.now().isoformat(),
             "message_count": 0,
-            "title": "New Conversation"  # Default title
+            "title": "New Conversation"
         }
+        
+        # Track session for user lookup
+        if user_id:
+            if user_id not in user_session_map:
+                user_session_map[user_id] = set()
+            user_session_map[user_id].add(session_id)
         
         # If authenticated and this is a brand new session not from login, create it in DB
         if current_user and not request.session_id:
             try:
-                # Create session in database linked to user
-                create_user_session(db, current_user["user_id"], None, session_id)
+                create_user_session(db, user_id, None, session_id)
             except Exception as e:
                 print(f"Warning: Could not save session to database: {e}")
 
@@ -721,58 +734,57 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
 @app.get("/sessions", response_model=List[SessionInfo])
 async def list_sessions(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """
-    List all active sessions.
-    For authenticated users, returns sessions from database.
-    For guests, returns only in-memory sessions.
+    List sessions for authenticated users only.
+    Guests do NOT get any session history - they must sign in to save conversations.
     """
+    # SECURITY: Guests should NOT see any session history
+    if not current_user:
+        return []  # Empty list for guests - no session history without an account
+    
     db = get_db_session()
     
-    # If authenticated, get user sessions from database
-    if current_user:
-        try:
-            user_sessions = get_user_sessions(db, current_user["user_id"])
-            # Also include any in-memory sessions that match the user
-            result = []
-            for session in user_sessions:
-                session_id = session.get("session_id")
-                # Get message count from memory if available
-                memory_info = sessions.get(session_id, {})
-                result.append(SessionInfo(
-                    session_id=session_id,
-                    title=memory_info.get("title", session.get("title", "New Conversation")),
-                    created_at=session.get("created_at") or memory_info.get("created_at", datetime.utcnow().isoformat()),
-                    message_count=memory_info.get("message_count", 0),
-                    last_activity=session.get("last_activity") or memory_info.get("last_activity", session.get("created_at"))
-                ))
-            return result
-        except Exception as e:
-            print(f"Error fetching user sessions: {e}")
-            # Fall back to memory sessions
-    
-    # For guests or on error, return in-memory sessions
-    return [
-        SessionInfo(
-            session_id=session_id,
-            title=info.get("title", "New Conversation"),
-            created_at=info["created_at"],
-            message_count=info["message_count"],
-            last_activity=info.get("last_activity", info["created_at"])
-        )
-        for session_id, info in sessions.items()
-    ]
+    # Get ONLY this user's sessions from database
+    try:
+        user_sessions = get_user_sessions(db, current_user["user_id"])
+        result = []
+        for session in user_sessions:
+            session_id = session.get("session_id")
+            # Get message count from memory if available
+            memory_info = sessions.get(session_id, {})
+            result.append(SessionInfo(
+                session_id=session_id,
+                title=memory_info.get("title", session.get("title", "New Conversation")),
+                created_at=session.get("created_at") or memory_info.get("created_at", datetime.utcnow().isoformat()),
+                message_count=memory_info.get("message_count", 0),
+                last_activity=session.get("last_activity") or memory_info.get("last_activity", session.get("created_at"))
+            ))
+        return result
+    except Exception as e:
+        print(f"Error fetching user sessions: {e}")
+        return []  # Return empty on error for safety
 
 
 @app.get("/sessions/{session_id}", response_model=SessionInfo)
 async def get_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Get information about a specific session (with ownership verification)"""
     db = get_db_session()
+    user_id = current_user["user_id"] if current_user else None
     
-    # Check session ownership if user is authenticated
-    if current_user:
-        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+    # SECURITY: Check in-memory ownership first
+    if session_id in sessions:
+        session_owner_id = sessions[session_id].get("owner_id")
+        if session_owner_id and session_owner_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    
+    # Also check database ownership
+    if current_user:
+        if not verify_session_ownership(db, session_id, user_id):
+            # Check if session exists in DB but belongs to someone else
+            db_owner = get_session_owner(db, session_id)
+            if db_owner and db_owner != user_id:
+                raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
     else:
-        # For guests, only allow access to in-memory sessions (no DB sessions)
+        # Guest - deny access if session has any owner
         session_owner = get_session_owner(db, session_id)
         if session_owner:
             raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
@@ -800,13 +812,21 @@ async def get_conversation_history(session_id: str, current_user: Optional[Dict[
         )
     
     db = get_db_session()
+    user_id = current_user["user_id"] if current_user else None
     
-    # Check session ownership if user is authenticated
+    # SECURITY: Check in-memory ownership first
+    if session_id in sessions:
+        session_owner_id = sessions[session_id].get("owner_id")
+        if session_owner_id and session_owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    
+    # Also check database ownership
     if current_user:
-        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+        db_owner = get_session_owner(db, session_id)
+        if db_owner and db_owner != user_id:
             raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
     else:
-        # For guests, only allow access to in-memory sessions (no DB sessions)
+        # Guest - deny access if session has any owner
         session_owner = get_session_owner(db, session_id)
         if session_owner:
             raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
@@ -838,13 +858,21 @@ async def get_conversation_history(session_id: str, current_user: Optional[Dict[
 async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Delete a session and its conversation history (with ownership verification)"""
     db = get_db_session()
+    user_id = current_user["user_id"] if current_user else None
     
-    # Check session ownership if user is authenticated
+    # SECURITY: Check in-memory ownership first
+    if session_id in sessions:
+        session_owner_id = sessions[session_id].get("owner_id")
+        if session_owner_id and session_owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    
+    # Check database ownership and delete if authenticated
     if current_user:
-        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+        db_owner = get_session_owner(db, session_id)
+        if db_owner and db_owner != user_id:
             raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
         # Delete from database
-        delete_user_session(db, session_id, current_user["user_id"])
+        delete_user_session(db, session_id, user_id)
     else:
         # For guests, only allow deletion of sessions not owned by anyone
         session_owner = get_session_owner(db, session_id)
@@ -864,10 +892,18 @@ async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]]
 async def clear_session_history(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Clear conversation history for a session while keeping the session active (with ownership verification)"""
     db = get_db_session()
+    user_id = current_user["user_id"] if current_user else None
     
-    # Check session ownership if user is authenticated
+    # SECURITY: Check in-memory ownership first
+    if session_id in sessions:
+        session_owner_id = sessions[session_id].get("owner_id")
+        if session_owner_id and session_owner_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    
+    # Also check database ownership
     if current_user:
-        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+        db_owner = get_session_owner(db, session_id)
+        if db_owner and db_owner != user_id:
             raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
     else:
         # For guests, only allow clearing of sessions not owned by anyone
