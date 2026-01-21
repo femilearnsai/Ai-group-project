@@ -43,7 +43,10 @@ import jwt
 # Database imports
 from database import (
     get_db, get_db_session, get_user_by_id, get_user_by_email,
-    create_user, update_user_last_login
+    create_user, update_user_last_login, is_new_ip_for_user,
+    register_user_ip, update_ip_last_seen, create_user_session, get_user_sessions,
+    update_session_title, update_session_activity, get_session_owner,
+    verify_session_ownership, delete_user_session
 )
 
 # JWT Configuration
@@ -303,14 +306,23 @@ async def health_check():
 # =============================================
 
 @app.post("/auth/signup", response_model=AuthResponse)
-async def signup(request: SignupRequest):
+async def signup(request: SignupRequest, req: Request):
     """
     Register a new user
     
     Creates a new user account with email and password
+    Also registers the IP and creates an initial session
     """
     db = get_db_session()
     try:
+        # Get client IP address
+        client_ip = req.client.host if req.client else "unknown"
+        forwarded_for = req.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        
+        user_agent = req.headers.get("user-agent", "")
+        
         # Check if email already exists
         existing_user = get_user_by_email(db, request.email)
         if existing_user:
@@ -332,10 +344,16 @@ async def signup(request: SignupRequest):
             auth_provider="local"
         )
         
+        # Register the IP address for this new user
+        register_user_ip(db, user_id, client_ip, user_agent)
+        
+        # Create initial session for this user
+        new_session_id = create_user_session(db, user_id, client_ip)
+        
         # Create JWT token
         token = create_jwt_token(user_id, user.email)
         
-        print(f"👤 New user registered: {request.email}")
+        print(f"👤 New user registered: {request.email} from IP {client_ip}")
         
         return AuthResponse(
             status="success",
@@ -345,7 +363,9 @@ async def signup(request: SignupRequest):
                 "id": user.id,
                 "email": user.email,
                 "username": user.username,
-                "created_at": user.created_at.isoformat()
+                "created_at": user.created_at.isoformat(),
+                "new_session_id": new_session_id,
+                "is_new_ip": True
             }
         )
     finally:
@@ -353,12 +373,22 @@ async def signup(request: SignupRequest):
 
 
 @app.post("/auth/login", response_model=AuthResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, req: Request):
     """
     Authenticate user and return JWT token
+    Creates a new session if logging in from a new IP address
     """
     db = get_db_session()
     try:
+        # Get client IP address
+        client_ip = req.client.host if req.client else "unknown"
+        # Check for forwarded IP (if behind proxy)
+        forwarded_for = req.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        
+        user_agent = req.headers.get("user-agent", "")
+        
         # Find user by email
         user = get_user_by_email(db, request.email)
         
@@ -385,10 +415,23 @@ async def login(request: LoginRequest):
         # Update last login
         user = update_user_last_login(db, user)
         
+        # Check if this is a new IP address for this user
+        new_session_id = None
+        is_new_ip = is_new_ip_for_user(db, user.id, client_ip)
+        
+        if is_new_ip:
+            # Register the new IP
+            register_user_ip(db, user.id, client_ip, user_agent)
+            # Create a new session for this IP
+            new_session_id = create_user_session(db, user.id, client_ip)
+            print(f"🌐 New IP detected for {request.email}: {client_ip} - Created session {new_session_id}")
+        else:
+            # Update last seen for existing IP
+            update_ip_last_seen(db, user.id, client_ip)
+            print(f"🔑 User logged in from known IP: {request.email} ({client_ip})")
+        
         # Create JWT token
         token = create_jwt_token(user.id, user.email)
-        
-        print(f"🔑 User logged in: {request.email}")
         
         return AuthResponse(
             status="success",
@@ -399,7 +442,9 @@ async def login(request: LoginRequest):
                 "email": user.email,
                 "username": user.username or user.email.split("@")[0],
                 "created_at": user.created_at.isoformat() if user.created_at else None,
-                "last_login": user.last_login.isoformat() if user.last_login else None
+                "last_login": user.last_login.isoformat() if user.last_login else None,
+                "new_session_id": new_session_id,
+                "is_new_ip": is_new_ip
             }
         )
     finally:
@@ -446,18 +491,25 @@ class GoogleAuthRequest(BaseModel):
 
 
 @app.post("/auth/google")
-async def google_auth(request: GoogleAuthRequest):
+async def google_auth(google_request: GoogleAuthRequest, request: Request):
     """
     Authenticate user with Google Sign-In
     
     Verifies the Google ID token and creates/logs in the user
+    Creates a new session if logging in from a new IP address
     """
     db = get_db_session()
+    
+    # Get client IP address
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if not client_ip:
+        client_ip = request.client.host if request.client else "unknown"
+    
     try:
         # Verify Google ID token
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://oauth2.googleapis.com/tokeninfo?id_token={request.credential}"
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={google_request.credential}"
             )
             
             if response.status_code != 200:
@@ -489,12 +541,28 @@ async def google_auth(request: GoogleAuthRequest):
                 # Login existing user
                 existing_user = update_user_last_login(db, existing_user)
                 token = create_jwt_token(existing_user.id, existing_user.email)
-                print(f"🔑 Google user logged in: {email}")
+                
+                # Check if this is a new IP for this user
+                is_new_ip = is_new_ip_for_user(db, existing_user.id, client_ip)
+                new_session_id = None
+                
+                if is_new_ip:
+                    # Register the new IP
+                    register_user_ip(db, existing_user.id, client_ip)
+                    # Create a new session for this IP
+                    new_session_id = create_user_session(db, existing_user.id, client_ip)
+                    print(f"🔑 Google user logged in from NEW IP: {email} ({client_ip}) - New session: {new_session_id}")
+                else:
+                    # Update last seen for this IP
+                    update_ip_last_seen(db, existing_user.id, client_ip)
+                    print(f"🔑 Google user logged in: {email} ({client_ip})")
                 
                 return {
                     "status": "success",
                     "message": "Login successful",
                     "token": token,
+                    "is_new_ip": is_new_ip,
+                    "new_session_id": new_session_id,
                     "user": {
                         "id": existing_user.id,
                         "email": existing_user.email,
@@ -520,13 +588,19 @@ async def google_auth(request: GoogleAuthRequest):
                 # Update last login for new user
                 new_user = update_user_last_login(db, new_user)
                 
+                # Register IP and create initial session for new user
+                register_user_ip(db, user_id, client_ip)
+                new_session_id = create_user_session(db, user_id, client_ip)
+                
                 token = create_jwt_token(user_id, email.lower())
-                print(f"👤 New Google user registered: {email}")
+                print(f"👤 New Google user registered: {email} ({client_ip}) - Session: {new_session_id}")
                 
                 return {
                     "status": "success",
                     "message": "Account created successfully",
                     "token": token,
+                    "is_new_ip": True,
+                    "new_session_id": new_session_id,
                     "user": {
                         "id": new_user.id,
                         "email": new_user.email,
@@ -547,12 +621,13 @@ async def google_auth(request: GoogleAuthRequest):
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """
     Main chat endpoint
 
     Processes user messages and returns AI responses with source citations
     Maintains conversation context across messages in the same session
+    For authenticated users, sessions are linked to their account
     """
     if rag_engine is None:
         raise HTTPException(
@@ -560,19 +635,47 @@ async def chat(request: ChatRequest):
             detail="RAG engine not initialized. Please try again later."
         )
 
+    db = get_db_session()
+    
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
+
+    # SECURITY: Verify session ownership if a session_id was provided
+    if request.session_id:
+        session_owner = get_session_owner(db, request.session_id)
+        if session_owner:
+            # This session belongs to someone
+            if current_user:
+                if session_owner != current_user["user_id"]:
+                    raise HTTPException(
+                        status_code=403, 
+                        detail="Access denied: This conversation belongs to another user"
+                    )
+            else:
+                # Guest trying to access an owned session
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Access denied: This conversation belongs to another user"
+                )
 
     # Track if this is a new session
     is_new_session = session_id not in sessions
 
-    # Update session info
+    # Update session info in memory
     if is_new_session:
         sessions[session_id] = {
             "created_at": datetime.now().isoformat(),
             "message_count": 0,
             "title": "New Conversation"  # Default title
         }
+        
+        # If authenticated and this is a brand new session not from login, create it in DB
+        if current_user and not request.session_id:
+            try:
+                # Create session in database linked to user
+                create_user_session(db, current_user["user_id"], None, session_id)
+            except Exception as e:
+                print(f"Warning: Could not save session to database: {e}")
 
     sessions[session_id]["message_count"] += 1
     sessions[session_id]["last_activity"] = datetime.now().isoformat()
@@ -589,6 +692,13 @@ async def chat(request: ChatRequest):
         if is_new_session:
             title = rag_engine.generate_session_title(session_id=session_id)
             sessions[session_id]["title"] = title
+            
+            # Update session title in database for authenticated users
+            if current_user:
+                try:
+                    update_session_title(db, session_id, title)
+                except Exception as e:
+                    print(f"Warning: Could not update session title in database: {e}")
 
         session_title = sessions[session_id].get("title", "New Conversation")
 
@@ -609,8 +719,37 @@ async def chat(request: ChatRequest):
 
 
 @app.get("/sessions", response_model=List[SessionInfo])
-async def list_sessions():
-    """List all active sessions"""
+async def list_sessions(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """
+    List all active sessions.
+    For authenticated users, returns sessions from database.
+    For guests, returns only in-memory sessions.
+    """
+    db = get_db_session()
+    
+    # If authenticated, get user sessions from database
+    if current_user:
+        try:
+            user_sessions = get_user_sessions(db, current_user["user_id"])
+            # Also include any in-memory sessions that match the user
+            result = []
+            for session in user_sessions:
+                session_id = session.get("session_id")
+                # Get message count from memory if available
+                memory_info = sessions.get(session_id, {})
+                result.append(SessionInfo(
+                    session_id=session_id,
+                    title=memory_info.get("title", session.get("title", "New Conversation")),
+                    created_at=session.get("created_at") or memory_info.get("created_at", datetime.utcnow().isoformat()),
+                    message_count=memory_info.get("message_count", 0),
+                    last_activity=session.get("last_activity") or memory_info.get("last_activity", session.get("created_at"))
+                ))
+            return result
+        except Exception as e:
+            print(f"Error fetching user sessions: {e}")
+            # Fall back to memory sessions
+    
+    # For guests or on error, return in-memory sessions
     return [
         SessionInfo(
             session_id=session_id,
@@ -624,8 +763,20 @@ async def list_sessions():
 
 
 @app.get("/sessions/{session_id}", response_model=SessionInfo)
-async def get_session(session_id: str):
-    """Get information about a specific session"""
+async def get_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Get information about a specific session (with ownership verification)"""
+    db = get_db_session()
+    
+    # Check session ownership if user is authenticated
+    if current_user:
+        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    else:
+        # For guests, only allow access to in-memory sessions (no DB sessions)
+        session_owner = get_session_owner(db, session_id)
+        if session_owner:
+            raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
+    
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -640,13 +791,25 @@ async def get_session(session_id: str):
 
 
 @app.get("/sessions/{session_id}/history", response_model=ConversationHistory)
-async def get_conversation_history(session_id: str):
-    """Get conversation history for a session"""
+async def get_conversation_history(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Get conversation history for a session (with ownership verification)"""
     if rag_engine is None:
         raise HTTPException(
             status_code=503,
             detail="RAG engine not initialized"
         )
+    
+    db = get_db_session()
+    
+    # Check session ownership if user is authenticated
+    if current_user:
+        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    else:
+        # For guests, only allow access to in-memory sessions (no DB sessions)
+        session_owner = get_session_owner(db, session_id)
+        if session_owner:
+            raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
 
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -672,8 +835,22 @@ async def get_conversation_history(session_id: str):
 
 
 @app.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    """Delete a session and its conversation history"""
+async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Delete a session and its conversation history (with ownership verification)"""
+    db = get_db_session()
+    
+    # Check session ownership if user is authenticated
+    if current_user:
+        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+        # Delete from database
+        delete_user_session(db, session_id, current_user["user_id"])
+    else:
+        # For guests, only allow deletion of sessions not owned by anyone
+        session_owner = get_session_owner(db, session_id)
+        if session_owner:
+            raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
+    
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -684,8 +861,20 @@ async def delete_session(session_id: str):
 
 
 @app.post("/sessions/{session_id}/clear")
-async def clear_session_history(session_id: str):
-    """Clear conversation history for a session while keeping the session active"""
+async def clear_session_history(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Clear conversation history for a session while keeping the session active (with ownership verification)"""
+    db = get_db_session()
+    
+    # Check session ownership if user is authenticated
+    if current_user:
+        if not verify_session_ownership(db, session_id, current_user["user_id"]):
+            raise HTTPException(status_code=403, detail="Access denied: This session does not belong to you")
+    else:
+        # For guests, only allow clearing of sessions not owned by anyone
+        session_owner = get_session_owner(db, session_id)
+        if session_owner:
+            raise HTTPException(status_code=403, detail="Access denied: This session belongs to another user")
+    
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -816,9 +1005,9 @@ async def get_feedback_stats():
 
 
 @app.post("/regenerate", response_model=ChatResponse)
-async def regenerate_response(request: RegenerateRequest):
+async def regenerate_response(request: RegenerateRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """
-    Regenerate the last AI response for a session
+    Regenerate the last AI response for a session (with ownership verification)
     
     This retrieves the last user message and generates a new response
     """
@@ -827,6 +1016,23 @@ async def regenerate_response(request: RegenerateRequest):
             status_code=503,
             detail="RAG engine not initialized. Please try again later."
         )
+    
+    db = get_db_session()
+    
+    # SECURITY: Verify session ownership
+    session_owner = get_session_owner(db, request.session_id)
+    if session_owner:
+        if current_user:
+            if session_owner != current_user["user_id"]:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Access denied: This conversation belongs to another user"
+                )
+        else:
+            raise HTTPException(
+                status_code=403, 
+                detail="Access denied: This conversation belongs to another user"
+            )
     
     if request.session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")

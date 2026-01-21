@@ -77,8 +77,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
-        // Sync chat store with authenticated state
-        await chatStoreOnLogin();
+        // Sync chat store with authenticated state, passing auth response for session info
+        await chatStoreOnLogin(data);
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Signup failed');
@@ -110,8 +110,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
-        // Sync chat store with authenticated state
-        await chatStoreOnLogin();
+        // Sync chat store with authenticated state, passing auth response for session info
+        await chatStoreOnLogin(data);
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Login failed');
@@ -152,8 +152,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
-        // Sync chat store with authenticated state
-        await chatStoreOnLogin();
+        // Sync chat store with authenticated state, passing auth response for session info
+        await chatStoreOnLogin(data);
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Google sign-in failed');

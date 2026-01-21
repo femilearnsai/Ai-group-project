@@ -345,8 +345,14 @@ export const useChatStore = create(
         });
       },
 
-      // Called when user logs in - fetch their data
-      onLogin: async () => {
+      // Called when user logs in - fetch their data and handle new session from new IP
+      onLogin: async (authResponse = {}) => {
+        // If login returned a new session ID (new IP address), use it
+        if (authResponse.new_session_id) {
+          set({ activeChatId: authResponse.new_session_id });
+          console.log('🆕 New session created from new IP:', authResponse.new_session_id);
+        }
+        
         await get().fetchConversations();
         // Keep current chat if exists, otherwise show greeting
         if (!get().currentChat.length) {

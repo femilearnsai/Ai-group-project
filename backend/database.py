@@ -187,6 +187,193 @@ def update_user_last_login(db: SupabaseSession, user: User) -> User:
 
 
 # =============================================
+# IP TRACKING & SESSION MANAGEMENT
+# =============================================
+
+def get_user_ips(db: SupabaseSession, user_id: str) -> list:
+    """Get all registered IP addresses for a user"""
+    if not db.client:
+        return []
+    
+    try:
+        response = db.client.table("user_ips").select("*").eq("user_id", user_id).execute()
+        return response.data or []
+    except Exception as e:
+        print(f"Error getting user IPs: {e}")
+        return []
+
+
+def is_new_ip_for_user(db: SupabaseSession, user_id: str, ip_address: str) -> bool:
+    """Check if this IP address is new for the user"""
+    if not db.client:
+        return True
+    
+    try:
+        response = db.client.table("user_ips").select("id").eq("user_id", user_id).eq("ip_address", ip_address).execute()
+        return not response.data or len(response.data) == 0
+    except Exception as e:
+        print(f"Error checking IP: {e}")
+        return True
+
+
+def register_user_ip(db: SupabaseSession, user_id: str, ip_address: str, user_agent: str = None) -> Dict[str, Any]:
+    """Register a new IP address for a user and create a new session"""
+    if not db.client:
+        return None
+    
+    import uuid
+    
+    try:
+        # Create IP record
+        ip_data = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+            "first_seen": datetime.utcnow().isoformat(),
+            "last_seen": datetime.utcnow().isoformat()
+        }
+        
+        response = db.client.table("user_ips").insert(ip_data).execute()
+        
+        if response.data:
+            return response.data[0]
+        return None
+    except Exception as e:
+        print(f"Error registering IP: {e}")
+        return None
+
+
+def update_ip_last_seen(db: SupabaseSession, user_id: str, ip_address: str) -> None:
+    """Update the last seen timestamp for an IP"""
+    if not db.client:
+        return
+    
+    try:
+        db.client.table("user_ips").update(
+            {"last_seen": datetime.utcnow().isoformat()}
+        ).eq("user_id", user_id).eq("ip_address", ip_address).execute()
+    except Exception as e:
+        print(f"Error updating IP last seen: {e}")
+
+
+def create_user_session(db: SupabaseSession, user_id: str, ip_address: str = None, session_id: str = None) -> str:
+    """Create a new chat session for a user, optionally from a specific IP"""
+    if not db.client:
+        return None
+    
+    import uuid
+    
+    try:
+        # Use provided session_id or generate a new one
+        final_session_id = session_id or str(uuid.uuid4())
+        session_data = {
+            "session_id": final_session_id,
+            "user_id": user_id,
+            "ip_address": ip_address,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_activity": datetime.utcnow().isoformat(),
+            "title": "New Conversation"
+        }
+        
+        response = db.client.table("sessions").insert(session_data).execute()
+        
+        if response.data:
+            print(f"📝 Created new session {final_session_id} for user {user_id} from IP {ip_address}")
+            return final_session_id
+        return None
+    except Exception as e:
+        print(f"Error creating session: {e}")
+        return None
+
+
+def get_user_sessions(db: SupabaseSession, user_id: str) -> list:
+    """Get all sessions for a user"""
+    if not db.client:
+        return []
+    
+    try:
+        response = db.client.table("sessions").select("*").eq("user_id", user_id).order("last_activity", desc=True).execute()
+        return response.data or []
+    except Exception as e:
+        print(f"Error getting user sessions: {e}")
+        return []
+
+
+def get_session_owner(db: SupabaseSession, session_id: str) -> Optional[str]:
+    """Get the owner (user_id) of a session. Returns None if session doesn't exist or has no owner."""
+    if not db.client:
+        return None
+    
+    try:
+        response = db.client.table("sessions").select("user_id").eq("session_id", session_id).execute()
+        if response.data and len(response.data) > 0:
+            return response.data[0].get("user_id")
+        return None
+    except Exception as e:
+        print(f"Error getting session owner: {e}")
+        return None
+
+
+def verify_session_ownership(db: SupabaseSession, session_id: str, user_id: str) -> bool:
+    """Verify that a session belongs to a specific user"""
+    if not db.client:
+        return False
+    
+    try:
+        response = db.client.table("sessions").select("user_id").eq("session_id", session_id).eq("user_id", user_id).execute()
+        return response.data and len(response.data) > 0
+    except Exception as e:
+        print(f"Error verifying session ownership: {e}")
+        return False
+
+
+def delete_user_session(db: SupabaseSession, session_id: str, user_id: str) -> bool:
+    """Delete a session only if it belongs to the user"""
+    if not db.client:
+        return False
+    
+    try:
+        response = db.client.table("sessions").delete().eq("session_id", session_id).eq("user_id", user_id).execute()
+        return response.data and len(response.data) > 0
+    except Exception as e:
+        print(f"Error deleting session: {e}")
+        return False
+
+
+def update_session_title(db: SupabaseSession, session_id: str, title: str) -> bool:
+    """Update the title of a session"""
+    if not db.client:
+        return False
+    
+    try:
+        db.client.table("sessions").update(
+            {"title": title, "last_activity": datetime.utcnow().isoformat()}
+        ).eq("session_id", session_id).execute()
+        return True
+    except Exception as e:
+        print(f"Error updating session title: {e}")
+        return False
+
+
+def update_session_activity(db: SupabaseSession, session_id: str, message_count: int = None) -> bool:
+    """Update the last activity timestamp and optionally message count for a session"""
+    if not db.client:
+        return False
+    
+    try:
+        update_data = {"last_activity": datetime.utcnow().isoformat()}
+        if message_count is not None:
+            update_data["message_count"] = message_count
+        
+        db.client.table("sessions").update(update_data).eq("session_id", session_id).execute()
+        return True
+    except Exception as e:
+        print(f"Error updating session activity: {e}")
+        return False
+
+
+# =============================================
 # TABLE CREATION SQL (Run in Supabase SQL Editor)
 # =============================================
 
@@ -208,14 +395,49 @@ CREATE TABLE IF NOT EXISTS users (
 -- Create index for email lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+-- Create user_ips table for IP tracking
+CREATE TABLE IF NOT EXISTS user_ips (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ip_address VARCHAR(45) NOT NULL,
+    user_agent TEXT,
+    first_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, ip_address)
+);
+
+-- Create index for IP lookups
+CREATE INDEX IF NOT EXISTS idx_user_ips_user ON user_ips(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_ips_ip ON user_ips(ip_address);
+
+-- Create sessions table for chat sessions
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    ip_address VARCHAR(45),
+    title VARCHAR(255) DEFAULT 'New Conversation',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_activity TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    message_count INTEGER DEFAULT 0
+);
+
+-- Create index for session lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 -- Enable Row Level Security (optional but recommended)
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_ips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 
 -- Create policy to allow service role full access
-CREATE POLICY "Service role has full access" ON users
-    FOR ALL
-    USING (true)
-    WITH CHECK (true);
+CREATE POLICY "Service role has full access to users" ON users
+    FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to user_ips" ON user_ips
+    FOR ALL USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to sessions" ON sessions
+    FOR ALL USING (true) WITH CHECK (true);
 """
 
 def print_setup_instructions():
