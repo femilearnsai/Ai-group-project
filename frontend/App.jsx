@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { Header } from './components/Header.jsx';
@@ -10,32 +10,49 @@ import { BuyMeCoffee, BuyMeCoffeeButton } from './components/BuyMeCoffee.jsx';
 import { AuthModal } from './components/AuthModal.jsx';
 import { SignupPrompt } from './components/SignupPrompt.jsx';
 import { useAuth } from './contexts/AuthContext.jsx';
+import useChatStore from './stores/chatStore.js';
 import { INITIAL_CALC_INPUTS } from './constants.js';
-import { getRoleGreeting } from './utils.js';
 import config from './config.js';
 
 export const App = () => {
   const [activeTab, setActiveTab] = useState('chat');
   const [role, setRole] = useState('Individual');
-  const [userRole, setUserRole] = useState('taxpayer'); // tax_lawyer, taxpayer, company
-  const [conversations, setConversations] = useState([]);
-  const [activeChatId, setActiveChatId] = useState(null);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
-  const [searchQuery, setSearchQuery] = useState('');
   const [calcInputs, setCalcInputs] = useState(INITIAL_CALC_INPUTS);
-  const [currentChat, setCurrentChat] = useState([]);
   const [showDonation, setShowDonation] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSignupPrompt, setShowSignupPrompt] = useState(false);
+
+  // Zustand store
+  const {
+    currentChat,
+    activeChatId,
+    userRole,
+    isLoading,
+    error,
+    searchQuery,
+    setUserRole,
+    setSearchQuery,
+    setActiveChatId,
+    sendMessage,
+    regenerateResponse,
+    deleteConversation,
+    newChat,
+    setMessageVersion,
+    fetchConversations,
+    getFilteredConversations,
+    initializeGreeting,
+  } = useChatStore();
 
   const { isAuthenticated, user } = useAuth();
   const scrollRef = useRef(null);
 
   // Check if user has donated (for hiding the coffee popup permanently)
   const hasDonated = localStorage.getItem('user_has_donated') === 'true';
+
+  // Get filtered conversations
+  const filteredConversations = getFilteredConversations();
 
   // Check for Paystack callback and auto-open donation modal
   useEffect(() => {
@@ -48,6 +65,15 @@ export const App = () => {
     }
   }, []);
 
+  // Initialize chat on mount
+  useEffect(() => {
+    initializeGreeting();
+    // Only fetch conversations for authenticated users
+    if (isAuthenticated) {
+      fetchConversations();
+    }
+  }, [isAuthenticated]);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ 
@@ -55,21 +81,7 @@ export const App = () => {
         behavior: 'smooth' 
       });
     }
-  }, [activeChatId, conversations, isLoading, activeTab]);
-
-  useEffect(() => {
-    async function fetchCurrentChat() {
-      if (activeChatId) {
-        const res = await fetch(`${config.API_BASE_URL}/sessions/${activeChatId}/history`);
-        const data = await res.json();
-        setCurrentChat(data.messages);
-      } else {
-        const greeting = getRoleGreeting(userRole);
-        setCurrentChat([{ role: 'assistant', content: greeting, isGreeting: true }]);
-      }
-    }
-    fetchCurrentChat();
-  }, [activeChatId, userRole]);
+  }, [activeChatId, currentChat, isLoading, activeTab]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -81,38 +93,9 @@ export const App = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    async function fetchSessions() {
-      try {
-        const res = await fetch(config.endpoints.sessions);
-        if (!res.ok) throw new Error('Failed to load sessions');
-        const data = await res.json();
-        setConversations(data || []);
-      } catch (err) {
-        console.error('Error fetching sessions', err);
-      }
-    }
-
-    fetchSessions();
-  }, []);
-
-  const filteredConversations = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    const list = Array.isArray(conversations) ? conversations : [];
-    const matched = q
-      ? list.filter(c => (c.session_id || c.title || '').toLowerCase().includes(q))
-      : list;
-
-    return matched.sort((a, b) => {
-      const ta = new Date(a.last_activity || a.created_at || 0).getTime();
-      const tb = new Date(b.last_activity || b.created_at || 0).getTime();
-      return tb - ta;
-    });
-  }, [conversations, searchQuery]);
-
   const handleNewChat = () => {
     setActiveTab('chat');
-    setActiveChatId(null);
+    newChat();
     setInput('');
     if (window.innerWidth < 1024) setSidebarOpen(false);
   };
@@ -126,18 +109,7 @@ export const App = () => {
   const deleteChat = async (e, id) => {
     e.stopPropagation();
     if (confirm('Delete this conversation?')) {
-      setConversations(prev => prev.filter(c => c.session_id !== id));
-      if (activeChatId === id) setActiveChatId(null);
-    }
-    try {
-      const res = await fetch(`${config.API_BASE_URL}/sessions/${id}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      alert(data.message || `Session ${id} deleted`);
-    } catch (err) {
-      console.error('Failed to delete session', err);
-      alert('Failed to delete session');
+      await deleteConversation(id);
     }
   };
 
@@ -145,70 +117,9 @@ export const App = () => {
     if (!input.trim() || isLoading) return;
     const userText = input.trim();
     setInput('');
-    setIsLoading(true);
-    setError(null);
-    
-    // Add user message with timestamp
-    const userMessage = { 
-      role: 'human', 
-      content: userText,
-      timestamp: new Date().toISOString()
-    };
-    setCurrentChat(prev => [...prev, userMessage]);
-
-    const payload = activeChatId 
-      ? { message: userText, session_id: activeChatId, user_role: userRole } 
-      : { message: userText, user_role: userRole };
 
     try {
-      const res = await fetch(config.endpoints.chat, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || 'Chat request failed');
-      }
-
-      const data = await res.json();
-
-      if (data.session_id && data.session_id !== activeChatId) {
-        setActiveChatId(data.session_id);
-      }
-
-      // Add assistant message with timestamp and sources from API
-      const assistantMessage = { 
-        role: 'assistant', 
-        content: data.response,
-        timestamp: data.timestamp,
-        sources: data.sources || [],  // Include statutory reference sources
-        used_retrieval: data.used_retrieval || false
-      };
-      setCurrentChat(prev => [...prev, assistantMessage]);
-
-      try {
-        const sres = await fetch(config.endpoints.sessions);
-        if (sres.ok) {
-          const sdata = await sres.json();
-          setConversations(sdata || []);
-        }
-      } catch (err) {
-        console.error('Failed to refresh sessions', err);
-      }
-
-      if (data.session_id) {
-        try {
-          const hres = await fetch(`${config.API_BASE_URL}/sessions/${data.session_id}/history`);
-          if (hres.ok) {
-            const hdata = await hres.json();
-            setCurrentChat(hdata.messages || []);
-          }
-        } catch (err) {
-          console.error('Failed to fetch history', err);
-        }
-      }
+      await sendMessage(userText);
 
       // Track query count for non-authenticated users and show signup prompt
       if (!isAuthenticated) {
@@ -217,7 +128,7 @@ export const App = () => {
         
         // Show signup prompt after 2 queries (and not dismissed permanently)
         if (queryCount === 2 && !localStorage.getItem('signup_prompt_dismissed')) {
-          setTimeout(() => setShowSignupPrompt(true), 1000); // Delay for better UX
+          setTimeout(() => setShowSignupPrompt(true), 1000);
         }
         
         // Show Buy Me a Coffee popup every 2 AI responses for guests
@@ -225,7 +136,7 @@ export const App = () => {
         localStorage.setItem('guest_coffee_count', coffeeCount.toString());
         
         if (coffeeCount % 2 === 0) {
-          setTimeout(() => setShowDonation(true), 1500); // Slightly longer delay
+          setTimeout(() => setShowDonation(true), 1500);
         }
       } else {
         // Authenticated user - show coffee popup after 5 queries, once per day
@@ -249,102 +160,18 @@ export const App = () => {
           }
         }
       }
-
-      return data;
     } catch (err) {
-      setError('Failed to get response. Please try again.');
       console.error(err);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleRegenerate = async () => {
     if (isLoading || !currentChat || currentChat.length < 2) return;
-    
-    // Find the last user message
-    const lastUserMessageIndex = [...currentChat].reverse().findIndex(m => m.role === 'human');
-    if (lastUserMessageIndex === -1) return;
-    
-    const actualIndex = currentChat.length - 1 - lastUserMessageIndex;
-    const lastUserMessage = currentChat[actualIndex];
-    
-    // Find the last assistant message index
-    const lastAssistantIndex = currentChat.length - 1 - [...currentChat].reverse().findIndex(m => m.role === 'assistant' || m.role === 'ai');
-    
-    setIsLoading(true);
-    setError(null);
-
-    const payload = activeChatId 
-      ? { message: lastUserMessage.content, session_id: activeChatId, user_role: userRole } 
-      : { message: lastUserMessage.content, user_role: userRole };
-
-    try {
-      const res = await fetch(config.endpoints.chat, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || 'Regeneration failed');
-      }
-
-      const data = await res.json();
-
-      // Update the last assistant message with versioning
-      setCurrentChat(prev => {
-        const newChat = [...prev];
-        const lastAssistant = newChat[lastAssistantIndex];
-        
-        if (lastAssistant && (lastAssistant.role === 'assistant' || lastAssistant.role === 'ai')) {
-          // If versions array doesn't exist, create it with the current content as version 1
-          const existingVersions = lastAssistant.versions || [
-            { content: lastAssistant.content, timestamp: lastAssistant.timestamp }
-          ];
-          
-          // Add new response as a new version
-          const newVersions = [
-            { content: data.response, timestamp: data.timestamp },
-            ...existingVersions
-          ];
-          
-          // Update the message with versions (newest first, so index 0 is the latest)
-          newChat[lastAssistantIndex] = {
-            ...lastAssistant,
-            content: data.response,
-            timestamp: data.timestamp,
-            versions: newVersions,
-            currentVersionIndex: 0 // Show the newest version
-          };
-        }
-        
-        return newChat;
-      });
-
-    } catch (err) {
-      setError('Failed to regenerate response. Please try again.');
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+    await regenerateResponse();
   };
 
   const handleVersionChange = (messageIndex, versionIndex) => {
-    setCurrentChat(prev => {
-      const newChat = [...prev];
-      const message = newChat[messageIndex];
-      
-      if (message && message.versions && message.versions[versionIndex]) {
-        newChat[messageIndex] = {
-          ...message,
-          currentVersionIndex: versionIndex
-        };
-      }
-      
-      return newChat;
-    });
+    setMessageVersion(messageIndex, versionIndex);
   };
 
   const handleEdit = (content, messageIndex) => {

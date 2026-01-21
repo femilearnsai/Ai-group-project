@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import config from '../config.js';
+import useChatStore from '../stores/chatStore.js';
 
 const AuthContext = createContext(null);
 
@@ -16,6 +17,10 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('auth_token'));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Get chat store actions
+  const chatStoreOnLogin = useChatStore((state) => state.onLogin);
+  const chatStoreOnLogout = useChatStore((state) => state.onLogout);
 
   // Check if user is authenticated on mount
   useEffect(() => {
@@ -72,6 +77,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
+        // Sync chat store with authenticated state
+        await chatStoreOnLogin();
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Signup failed');
@@ -103,6 +110,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
+        // Sync chat store with authenticated state
+        await chatStoreOnLogin();
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Login failed');
@@ -119,6 +128,8 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     setError(null);
+    // Clear chat store for guest state
+    chatStoreOnLogout();
   };
 
   const googleSignIn = async (credential) => {
@@ -141,6 +152,8 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('signup_prompt_dismissed');
         setToken(data.token);
         setUser(data.user);
+        // Sync chat store with authenticated state
+        await chatStoreOnLogin();
         return { success: true };
       } else {
         setError(data.detail || data.message || 'Google sign-in failed');

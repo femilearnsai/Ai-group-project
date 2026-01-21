@@ -50,43 +50,76 @@ export const Sidebar = ({
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1 sm:space-y-1.5 md:space-y-2 no-scrollbar -mx-1 px-1">
-          {filteredConversations.map(chat => (
-            <div 
-              key={chat.session_id} 
-              onClick={() => { 
-                setActiveChatId(chat.session_id); 
-                setActiveTab('chat'); 
-                if (window.innerWidth < 1024) setSidebarOpen(false); 
-              }} 
-              className={`group flex items-center gap-2 sm:gap-2.5 md:gap-3 p-2 sm:p-2.5 md:p-3 rounded-lg sm:rounded-xl cursor-pointer transition-all border ${
-                activeChatId === chat.session_id 
-                  ? 'bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-800 shadow-sm' 
-                  : 'hover:bg-white dark:hover:bg-slate-800 border-transparent'
-              }`}
-            >
-              <div className={`p-1.5 sm:p-2 rounded-md sm:rounded-lg flex-shrink-0 ${
-                activeChatId === chat.session_id 
-                  ? 'bg-emerald-600 text-white' 
-                  : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
-              }`}>
-                <User size={14} className="sm:w-4 sm:h-4 md:w-5 md:h-5" />
+          {/* Show conversation history only for authenticated users */}
+          {isAuthenticated ? (
+            filteredConversations.length > 0 ? (
+              filteredConversations.map(chat => (
+                <div 
+                  key={chat.session_id} 
+                  onClick={() => { 
+                    setActiveChatId(chat.session_id); 
+                    setActiveTab('chat'); 
+                    if (window.innerWidth < 1024) setSidebarOpen(false); 
+                  }} 
+                  className={`group flex items-center gap-2 sm:gap-2.5 md:gap-3 p-2 sm:p-2.5 md:p-3 rounded-lg sm:rounded-xl cursor-pointer transition-all border ${
+                    activeChatId === chat.session_id 
+                      ? 'bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-800 shadow-sm' 
+                      : 'hover:bg-white dark:hover:bg-slate-800 border-transparent'
+                  }`}
+                >
+                  <div className={`p-1.5 sm:p-2 rounded-md sm:rounded-lg flex-shrink-0 ${
+                    activeChatId === chat.session_id 
+                      ? 'bg-emerald-600 text-white' 
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+                  }`}>
+                    <User size={14} className="sm:w-4 sm:h-4 md:w-5 md:h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-[10px] sm:text-[11px] md:text-xs font-black text-slate-800 dark:text-slate-100 truncate leading-tight">
+                      {chat.title || chat.session_id}
+                    </h3>
+                    <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                      {(chat.message_count || 0) + ' msgs • ' + (chat.last_activity ? new Date(chat.last_activity).toLocaleDateString() : '')}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={(e) => deleteChat(e, chat.session_id)} 
+                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-rose-500 transition-all text-slate-300 dark:text-slate-600 flex-shrink-0 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    <Trash2 size={12} className="sm:w-3.5 sm:h-3.5" />
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 px-4">
+                <div className="text-slate-400 dark:text-slate-500 text-xs font-medium">
+                  No conversations yet
+                </div>
+                <div className="text-slate-300 dark:text-slate-600 text-[10px] mt-1">
+                  Start a new chat to begin
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-[10px] sm:text-[11px] md:text-xs font-black text-slate-800 dark:text-slate-100 truncate leading-tight">
-                  {chat.title || chat.session_id}
-                </h3>
-                <span className="text-[8px] sm:text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
-                  {(chat.message_count || 0) + ' msgs • ' + (chat.last_activity ? new Date(chat.last_activity).toLocaleDateString() : '')}
-                </span>
+            )
+          ) : (
+            /* Guest user - no history */
+            <div className="text-center py-8 px-4">
+              <div className="w-12 h-12 mx-auto mb-3 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center">
+                <User size={24} className="text-slate-400 dark:text-slate-500" />
               </div>
-              <button 
-                onClick={(e) => deleteChat(e, chat.session_id)} 
-                className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-rose-500 transition-all text-slate-300 dark:text-slate-600 flex-shrink-0 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700"
+              <div className="text-slate-600 dark:text-slate-300 text-xs font-bold mb-1">
+                Sign in to save history
+              </div>
+              <div className="text-slate-400 dark:text-slate-500 text-[10px] leading-relaxed">
+                Create an account to save your conversations and access them from any device.
+              </div>
+              <button
+                onClick={onLoginClick}
+                className="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition-colors"
               >
-                <Trash2 size={12} className="sm:w-3.5 sm:h-3.5" />
+                Sign In / Sign Up
               </button>
             </div>
-          ))}
+          )}
         </div>
 
         <div className="pt-2 sm:pt-3 md:pt-4 border-t border-slate-200 dark:border-slate-700 mt-auto space-y-2 sm:space-y-2.5 md:space-y-3 safe-area-bottom">
