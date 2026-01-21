@@ -41,6 +41,8 @@ const initialState = {
   activeChatId: null,
   // User role for context
   userRole: 'taxpayer',
+  // Current user info for personalization
+  currentUser: null,
   // Loading state
   isLoading: false,
   // Error state
@@ -60,6 +62,9 @@ export const useChatStore = create(
       // Set user role
       setUserRole: (role) => set({ userRole: role }),
 
+      // Set current user
+      setCurrentUser: (user) => set({ currentUser: user }),
+
       // Set search query
       setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -72,10 +77,12 @@ export const useChatStore = create(
       // Clear error
       clearError: () => set({ error: null }),
 
-      // Initialize greeting message
-      initializeGreeting: () => {
-        const { userRole } = get();
-        const greeting = getRoleGreeting(userRole);
+      // Initialize greeting message with optional user personalization
+      initializeGreeting: (user = null) => {
+        const { userRole, currentUser } = get();
+        // Use passed user or stored currentUser
+        const userInfo = user || currentUser;
+        const greeting = getRoleGreeting(userRole, userInfo);
         set({ 
           currentChat: [{ role: 'assistant', content: greeting, isGreeting: true }],
           activeChatId: null
@@ -337,9 +344,10 @@ export const useChatStore = create(
       resetForGuest: () => {
         set({
           ...initialState,
+          currentUser: null,
           currentChat: [{ 
             role: 'assistant', 
-            content: getRoleGreeting('taxpayer'), 
+            content: getRoleGreeting('taxpayer', null), 
             isGreeting: true 
           }]
         });
@@ -347,6 +355,11 @@ export const useChatStore = create(
 
       // Called when user logs in - fetch their data and handle new session from new IP
       onLogin: async (authResponse = {}) => {
+        // Store user info for personalization
+        if (authResponse.user) {
+          set({ currentUser: authResponse.user });
+        }
+        
         // If login returned a new session ID (new IP address), use it
         if (authResponse.new_session_id) {
           set({ activeChatId: authResponse.new_session_id });
@@ -354,16 +367,18 @@ export const useChatStore = create(
         }
         
         await get().fetchConversations();
-        // Keep current chat if exists, otherwise show greeting
-        if (!get().currentChat.length) {
-          get().initializeGreeting();
-        }
+        
+        // Show personalized greeting with user's name
+        const user = authResponse.user || get().currentUser;
+        get().initializeGreeting(user);
       },
 
       // Called when user logs out - clear persisted data
       onLogout: () => {
         // Clear persisted storage
         localStorage.removeItem('chat-storage');
+        // Clear current user
+        set({ currentUser: null });
         // Reset to guest state
         get().resetForGuest();
       },

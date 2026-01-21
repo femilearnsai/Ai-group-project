@@ -43,6 +43,7 @@ export const App = () => {
     fetchConversations,
     getFilteredConversations,
     initializeGreeting,
+    setCurrentUser,
   } = useChatStore();
 
   const { isAuthenticated, user } = useAuth();
@@ -65,14 +66,16 @@ export const App = () => {
     }
   }, []);
 
-  // Initialize chat on mount
+  // Initialize chat on mount and when user changes
   useEffect(() => {
-    initializeGreeting();
+    // Update current user in store for personalized greetings
+    setCurrentUser(user);
+    initializeGreeting(user);
     // Only fetch conversations for authenticated users
     if (isAuthenticated) {
       fetchConversations();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     if (scrollRef.current) {

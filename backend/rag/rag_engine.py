@@ -269,6 +269,111 @@ class RAGEngine:
             return f"Reg. {groups[0]}"
         return ""
 
+    def _filter_unlinked_citations(self, response: str, sources: List[Dict[str, Any]]) -> str:
+        """
+        Remove statutory references from response text that don't have corresponding source links.
+        Only keep citations that can be traced back to actual retrieved documents.
+        
+        Args:
+            response: The AI-generated response text
+            sources: List of source documents with their metadata
+            
+        Returns:
+            Cleaned response with only verifiable citations
+        """
+        if not sources:
+            # No sources - remove all statutory references from the response
+            # Pattern matches: "s. X", "Section X", "Part X", "Schedule X", etc.
+            patterns_to_remove = [
+                # Remove inline citations like "(s. 55, Nigeria Tax Act 2025)"
+                r'\s*\([Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^)]*(?:Act|Bill)[^)]*\)',
+                # Remove standalone citations like "See s. 55, Nigeria Tax Act 2025"
+                r'\s*[Ss]ee\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^.]*(?:Act|Bill)[^.]*\.',
+                # Remove "pursuant to Section X" patterns
+                r'\s*[Pp]ursuant\s+to\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^.]*\.',
+                # Remove "under Section X" patterns  
+                r'\s*[Uu]nder\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^,.]*(,|\.|$)',
+            ]
+            
+            cleaned = response
+            for pattern in patterns_to_remove:
+                cleaned = re.sub(pattern, '', cleaned)
+            
+            # Also remove the "Statutory References Cited" section if present
+            cleaned = re.sub(r'\n*\*\*📚 Statutory References Cited:\*\*\n.*$', '', cleaned, flags=re.DOTALL)
+            
+            return cleaned.strip()
+        
+        # Build a set of verifiable citations from sources
+        verifiable_sections = set()
+        verifiable_pages = set()
+        verifiable_acts = set()
+        
+        for source in sources:
+            # Get sections from the source
+            if source.get('sections_in_content'):
+                for section in source['sections_in_content']:
+                    verifiable_sections.add(section.lower())
+            
+            # Get the main section
+            section = source.get('section', '')
+            if section and section != 'General Provisions':
+                verifiable_sections.add(section.lower())
+            
+            # Get page numbers
+            page = source.get('page')
+            if page and page != 'N/A':
+                verifiable_pages.add(str(page))
+            
+            # Get act names
+            act_name = source.get('act_name', '')
+            if act_name:
+                verifiable_acts.add(act_name.lower())
+        
+        # Function to check if a citation is verifiable
+        def is_citation_verifiable(match_text: str) -> bool:
+            match_lower = match_text.lower()
+            
+            # Check if any verifiable section is mentioned
+            for section in verifiable_sections:
+                # Normalize section format for comparison
+                section_num = re.search(r'\d+', section)
+                if section_num:
+                    if section_num.group() in match_text:
+                        return True
+            
+            # Check if a verifiable page is mentioned
+            page_match = re.search(r'p\.?\s*(\d+)', match_lower)
+            if page_match and page_match.group(1) in verifiable_pages:
+                return True
+                
+            return False
+        
+        # Process the response to filter unverifiable citations
+        # Pattern to find inline citations
+        citation_pattern = r'\([Ss](?:ection|\.)?\s*(\d+)(?:\((\d+)\))?(?:\(([a-z])\))?,?\s*([^)]*)\)'
+        
+        def replace_unverifiable(match):
+            full_match = match.group(0)
+            section_num = match.group(1)
+            
+            # Check if this section number exists in our verifiable sections
+            for section in verifiable_sections:
+                if section_num in section:
+                    return full_match  # Keep it
+            
+            # Not verifiable - remove it
+            return ''
+        
+        cleaned = re.sub(citation_pattern, replace_unverifiable, response)
+        
+        # Clean up any double spaces or awkward punctuation left behind
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+        cleaned = re.sub(r'\s+\.', '.', cleaned)
+        cleaned = re.sub(r'\s+,', ',', cleaned)
+        
+        return cleaned.strip()
+
     def load_documents(self) -> List[Document]:
         """Load all PDF documents from the docs directory"""
         documents = []
@@ -418,6 +523,7 @@ class RAGEngine:
         """
         Agent node: Retrieve relevant documents from vector store
         Extracts dynamic citations with both sections and pages
+        Creates verifiable source links to specific document pages
         """
         messages = state["messages"]
         last_msg = messages[-1] if messages else None
@@ -453,14 +559,26 @@ class RAGEngine:
             
             # Create comprehensive source info for frontend
             source_file = doc.metadata.get("source_file", "Unknown")
+            
             # Generate URL for PDF viewing with page number
             # URL format: /documents/{filename}#page={page_number}
             from urllib.parse import quote
             encoded_filename = quote(source_file)
+            
             # PDF.js and most browsers support #page=N for page navigation
-            doc_url = f"/documents/{encoded_filename}#page={page}" if page != "N/A" else f"/documents/{encoded_filename}"
+            # Also add section anchor if available for more precise linking
+            if page != "N/A":
+                doc_url = f"/documents/{encoded_filename}#page={page}"
+            else:
+                doc_url = f"/documents/{encoded_filename}"
+            
+            # Create a unique anchor ID based on section and page
+            anchor_id = f"page-{page}"
+            if all_citations:
+                anchor_id += f"-{all_citations[0]['formatted'].replace(' ', '-').replace('.', '')}"
             
             source_info = {
+                "id": i,  # Unique ID for this source
                 "source_file": source_file,
                 "act_name": act_name,
                 "page": page,
@@ -470,7 +588,9 @@ class RAGEngine:
                 "full_citation": f"{section}, {act_name}, p. {page}",
                 "content_preview": doc.page_content[:200] + "...",
                 "document_url": doc_url,  # Link to view the exact page in the PDF
-                "statutory_reference": f"{section} of the {act_name}"  # Formal citation
+                "anchor_id": anchor_id,  # Anchor for precise navigation
+                "statutory_reference": f"{section} of the {act_name}",  # Formal citation
+                "verifiable": True  # Mark as verifiable since it comes from actual document
             }
             sources.append(source_info)
 
@@ -616,16 +736,22 @@ Your role is to:
 - Use inline citations within your answer, not just at the end
 - Example: "The standard CIT rate is 30% (s. 12, Nigeria Tax Act 2025, p. 8) for companies with turnover above ₦100 million."
 
-**CITATION ACCURACY:**
-- ONLY cite sections and pages that actually appear in the provided context
-- NEVER invent section numbers or pages
-- NEVER cite without at least a section or page number
-- If unsure about a citation, acknowledge the limitation
+**CITATION ACCURACY (CRITICAL - MUST FOLLOW):**
+- ONLY cite sections and pages that actually appear in the provided context below
+- NEVER invent or guess section numbers or pages
+- NEVER cite a statutory reference unless it appears in the [Source X: ...] blocks
+- If the context doesn't contain a specific section number, DO NOT cite one
+- Only use citations from the retrieved documents - if you're not sure, don't cite
+- Each citation MUST have a corresponding source in the context provided
 
 **INLINE CITATION EXAMPLES:**
 - "According to s. 55(1) of the Nigeria Tax Act 2025 (p. 15), the PIT threshold is ₦800,000 annually."
 - "Companies earning above ₦100 million are subject to 30% CIT (s. 12, NTA 2025, p. 8)."
 - "For withholding tax on consultancy services, see s. 41(2) of the Nigeria Tax Act 2025 (p. 28)."
+
+**WHEN NOT TO CITE:**
+- If answering from general tax knowledge not in the documents, say "Based on general Nigerian tax principles..." without a specific citation
+- If the context doesn't provide a section number, don't make one up
 
 ---
 
@@ -742,17 +868,33 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
                 "messages": messages
             })
 
-            # Append sources list at the end with comprehensive citations
+            # Filter out any citations in the response that aren't backed by actual sources
+            response = self._filter_unlinked_citations(response, sources)
+
+            # Append sources list at the end with comprehensive citations and links
             if sources:
-                response += "\n\n**📚 Statutory References Cited:**\n"
-                for i, source in enumerate(sources, 1):
-                    # Use full citation with sections and page
-                    full_citation = source.get('full_citation', source.get('citation', f"{source['source_file']}, Page {source['page']}"))
-                    # Also show individual sections found in the content
-                    sections_text = ""
+                response += "\n\n**📚 Sources Cited (Click to view):**\n"
+                for source in sources:
+                    # Only include sources that have valid page references
+                    page = source.get('page', 'N/A')
+                    if page == 'N/A':
+                        continue
+                    
+                    # Build citation with clickable reference indicator
+                    act_name = source.get('act_name', source.get('source_file', 'Unknown'))
+                    section = source.get('section', 'General Provisions')
+                    doc_url = source.get('document_url', '')
+                    source_id = source.get('id', 0)
+                    
+                    # Format: "Section, Act Name, Page X"
+                    citation_text = f"{section}, {act_name}, p. {page}"
+                    
+                    # Add sections found if available
                     if source.get('sections_in_content'):
-                        sections_text = f" [Found: {', '.join(source['sections_in_content'])}]"
-                    response += f"{i}. {full_citation}{sections_text}\n"
+                        sections_list = ', '.join(source['sections_in_content'][:3])
+                        citation_text += f" [{sections_list}]"
+                    
+                    response += f"• [{citation_text}]({doc_url})\n"
 
         else:
             # Generate answer without context (for greetings, etc.)
