@@ -106,6 +106,7 @@ You are responding as a **Corporate Tax Compliance Desk/Officer** to a company r
 }
 
 
+
 class RAGEngine:
     """
     Intelligent RAG engine that:
@@ -269,35 +270,6 @@ class RAGEngine:
             return f"Reg. {groups[0]}"
         return ""
 
-    def _filter_unlinked_citations(self, response: str, sources: List[Dict[str, Any]]) -> str:
-        """
-        Remove statutory references from response text that don't have corresponding source links.
-        Only keep citations that can be traced back to actual retrieved documents.
-        
-        Args:
-            response: The AI-generated response text
-            sources: List of source documents with their metadata
-            
-        Returns:
-            Cleaned response with only verifiable citations
-        """
-        if not sources:
-            # No sources - remove all statutory references from the response
-            # Pattern matches: "s. X", "Section X", "Part X", "Schedule X", etc.
-            patterns_to_remove = [
-                # Remove inline citations like "(s. 55, Nigeria Tax Act 2025)"
-                r'\s*\([Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^)]*(?:Act|Bill)[^)]*\)',
-                # Remove standalone citations like "See s. 55, Nigeria Tax Act 2025"
-                r'\s*[Ss]ee\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^.]*(?:Act|Bill)[^.]*\.',
-                # Remove "pursuant to Section X" patterns
-                r'\s*[Pp]ursuant\s+to\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^.]*\.',
-                # Remove "under Section X" patterns  
-                r'\s*[Uu]nder\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^,.]*(,|\.|$)',
-            ]
-            
-            cleaned = response
-            for pattern in patterns_to_remove:
-                cleaned = re.sub(pattern, '', cleaned)
             
             # Also remove the "Statutory References Cited" section if present
             cleaned = re.sub(r'\n*\*\*📚 Statutory References Cited:\*\*\n.*$', '', cleaned, flags=re.DOTALL)
@@ -470,65 +442,13 @@ class RAGEngine:
 
             print("Vector database created and persisted")
 
-        # Create retriever
+
+        # Create a more comprehensive retriever (MMR, higher k)
         self.retriever = self.vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 4}
+            search_type="mmr",  # Maximal Marginal Relevance for diversity
+            search_kwargs={"k": 12, "fetch_k": 24}  # Retrieve more, then select diverse
         )
 
-    def _is_tax_related(self, message: str) -> bool:
-        """
-        Quick keyword-based check to determine if a message is likely tax-related.
-        Returns True if tax-related, False otherwise.
-        """
-        message_lower = message.lower()
-        
-        # Tax-related keywords (if ANY of these are present, likely tax-related)
-        tax_keywords = [
-            'tax', 'taxes', 'taxation', 'taxable', 'taxed',
-            'paye', 'pit', 'cit', 'vat', 'wht', 'cgt', 'ppt',
-            'withholding', 'income tax', 'company tax', 'corporate tax',
-            'capital gain', 'value added', 'petroleum profit',
-            'firs', 'revenue service', 'tax authority',
-            'filing', 'file return', 'tax return', 'annual return',
-            'deduction', 'allowance', 'relief', 'exemption',
-            'tin', 'taxpayer', 'tax payer',
-            'assessment', 'tax assessment',
-            'penalty', 'penalties', 'offence', 'offenses',
-            'section', 'act 2025', 'tax act', 'tax law', 'tax bill',
-            'nigeria tax', 'nigerian tax',
-            'tax rate', 'tax rates', 'tax bracket',
-            'gross income', 'taxable income', 'chargeable income',
-            'stamp duty', 'stamp duties',
-            'education tax', 'tertiary education',
-            'minimum tax', 'commencement',
-            'remittance', 'remit',
-            'invoice', 'receipt', 'tax invoice',
-            'compliance', 'non-compliance',
-            'turnover', 'revenue', 'profit',
-            'employer', 'employee', 'salary', 'wage', 'emolument',
-            'dividend', 'interest', 'royalty', 'rent',
-            'contractor', 'contract', 'consultancy',
-            'nrs', 'jrb', 'joint revenue'
-        ]
-        
-        # Check if any tax keyword is in the message
-        for keyword in tax_keywords:
-            if keyword in message_lower:
-                return True
-        
-        # Simple greetings are allowed (will be handled by generate)
-        greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 
-                     'good evening', 'how are you', 'what can you do', 'help',
-                     'sannu', 'ndewo', 'bawo ni', 'how you dey', 'wetin']
-        
-        # If it's ONLY a greeting (short message), allow it
-        if len(message_lower.split()) <= 5:
-            for greeting in greetings:
-                if greeting in message_lower:
-                    return True  # Greetings go through as "tax-related" for now
-        
-        return False
 
     def _reject_non_tax_question(self, state: ConversationState) -> ConversationState:
         """
@@ -911,29 +831,6 @@ Your role is to:
 ### 🎯 CORE PRINCIPLES
 - Always distinguish between **Individuals** and **Companies**
 - Respect tax residency, turnover thresholds, and exemptions
-- Treat Withholding Tax (WHT) as an **advance tax**, not a final tax (except where expressly stated)
-- Use **plain language**, but remain legally precise
-- Never invent tax rates or obligations
-- If data is insufficient, request clarification
-
----
-
-### 📚 DYNAMIC CITATION RULES (CRITICAL)
-**Citation Format Requirements:**
-1. **With Section Number**: Use format `s. [section number], [Act name] (p. [page number])`
-   - Example: "s. 55(1), Nigeria Tax Act 2025 (p. 15)"
-   - Example: "Schedule 3, Nigeria Tax Act 2025 (p. 42)"
-
-2. **With Page Reference**: Include page number in parentheses
-   - Example: "s. 12, Nigeria Tax Administration Act 2025 (p. 8)"
-
-3. **Multiple Related Sections**: Cite all relevant provisions
-   - Example: "s. 56(1) and s. 56(2), Nigeria Tax Act 2025 (pp. 15-16)"
-
-4. **When No Section Available**: Use page reference only
-   - Format: "[Act name], p. [page number]"
-
-**CITATION PLACEMENT:**
 - Place citations **immediately after** the fact or claim they support
 - Use inline citations within your answer, not just at the end
 - Example: "The standard CIT rate is 30% (s. 12, Nigeria Tax Act 2025, p. 8) for companies with turnover above ₦100 million."
@@ -943,7 +840,6 @@ Your role is to:
 - NEVER invent or guess section numbers or pages
 - NEVER cite a statutory reference unless it appears in the [Source X: ...] blocks
 - If the context doesn't contain a specific section number, DO NOT cite one
-- Only use citations from the retrieved documents - if you're not sure, don't cite
 - Each citation MUST have a corresponding source in the context provided
 
 **INLINE CITATION EXAMPLES:**
@@ -1030,37 +926,21 @@ When calculating tax, return results in this structured format with clear sectio
 
 {role_instruction}
 
----
-
-### 🌍 LANGUAGE INSTRUCTION
+LANGUAGE INSTRUCTION:
 The user is communicating in {detected_language}. You MUST respond entirely in {detected_language}.
 - If {detected_language} is Hausa, respond in Hausa
-- If {detected_language} is Igbo, respond in Igbo  
-- If {detected_language} is Yoruba, respond in Yoruba
-- If {detected_language} is Nigerian Pidgin, respond in Nigerian Pidgin
-- If {detected_language} is English, respond in English
+- If {detected_language} is Igbo, respond in Igbo
 
 Translate technical tax terms appropriately for {detected_language} while maintaining accuracy.
+You have been provided with context from relevant policy documents. Use this context to answer the question accurately.
 
----
-
-### 📚 CONTEXT AND CITATIONS
-You have been provided with context from relevant policy documents. Use this context to answer the question accurately. 
-
-**Citation Requirements:**
-- Always cite the sections and pages from the provided context
+Citation Requirements:
 - Use the format: "s. [section], [Act name] (p. [page])"
 - Place citations immediately after relevant claims
 - Include page numbers in all citations
-- For questions answered from context, end with a summary of cited authorities
-
-If the context doesn't contain enough information to answer the question completely, state what information is missing and what you could infer.
-
-You are a compliance-first, statute-driven Nigerian Tax AI."""
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_message),
-                ("system", "Context from policy documents:\n\n{context}"),
                 MessagesPlaceholder(variable_name="messages"),
             ])
 
@@ -1071,32 +951,51 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
             })
 
             # Filter out any citations in the response that aren't backed by actual sources
+
             response = self._filter_unlinked_citations(response, sources)
 
-            # Append sources list at the end with comprehensive citations and links
+
+            # === Self-reflection loop: iterate answer improvement 2 times ===
+            question_text = str(messages[-1].content) if messages else ""
+            for i in range(2):
+                response = self._self_reflect(question_text, response, sources, iteration=i+1)
+
+            # === Always add at least one source inline if none present ===
             if sources:
-                response += "\n\n**📚 Sources Cited (Click to view):**\n"
-                for source in sources:
-                    # Only include sources that have valid page references
+                # Check if any source link is present in the response
+                has_source = False
+                for idx, source in enumerate(sources, 1):
                     page = source.get('page', 'N/A')
                     if page == 'N/A':
                         continue
-                    
-                    # Build citation with clickable reference indicator
                     act_name = source.get('act_name', source.get('source_file', 'Unknown'))
                     section = source.get('section', 'General Provisions')
-                    doc_url = source.get('document_url', '')
-                    source_id = source.get('id', 0)
-                    
-                    # Format: "Section, Act Name, Page X"
+                    doc_url = source.get('document_url', '')  # No section anchor
                     citation_text = f"{section}, {act_name}, p. {page}"
-                    
-                    # Add sections found if available
                     if source.get('sections_in_content'):
                         sections_list = ', '.join(source['sections_in_content'][:3])
                         citation_text += f" [{sections_list}]"
-                    
-                    response += f"• [{citation_text}]({doc_url})\n"
+                    # If this citation/link is in the response, mark as found
+                    if doc_url in response or citation_text in response:
+                        has_source = True
+                        break
+                # If no source found in response, append the first valid one (base doc_url only)
+                if not has_source:
+                    for idx, source in enumerate(sources, 1):
+                        page = source.get('page', 'N/A')
+                        if page == 'N/A':
+                            continue
+                        act_name = source.get('act_name', source.get('source_file', 'Unknown'))
+                        section = source.get('section', 'General Provisions')
+                        doc_url = source.get('document_url', '')  # No section anchor
+                        citation_text = f"{section}, {act_name}, p. {page}"
+                        if source.get('sections_in_content'):
+                            sections_list = ', '.join(source['sections_in_content'][:3])
+                            citation_text += f" [{sections_list}]"
+                        # Append as inline citation at the end
+                        response += f"\n\nSource: [{citation_text}]({doc_url})"
+                        break
+
 
         else:
             # Generate answer without context (for greetings, etc.)
@@ -1474,17 +1373,8 @@ Kedu ka m ga-esi nyere gị aka na okwu ụtụ isi Naịjirịa taa?"""
         detected_language = self._detect_language(message)
 
         # ============================================================
-        # HARD GATE: Reject non-tax questions BEFORE any LLM processing
-        # This is deterministic and cannot be bypassed
-        # ============================================================
-        if not self._is_message_allowed(message):
-            return {
-                "response": self._get_rejection_response(detected_language),
-                "sources": [],
-                "used_retrieval": False,
-                "rejected": True
-            }
-        # ============================================================
+        # DECISION: Use LLM/system prompt to determine if question is tax-related
+        # (No keyword-based hard gate; rely on system prompt/LLM for classification)
 
         # Validate user_role
         valid_roles = ["tax_lawyer", "taxpayer", "company"]
@@ -1595,7 +1485,6 @@ Kedu ka m ga-esi nyere gị aka na okwu ụtụ isi Naịjirịa taa?"""
         """
         try:
             messages = self.get_conversation_history(session_id)
-
             if not messages:
                 return "New Conversation"
 
