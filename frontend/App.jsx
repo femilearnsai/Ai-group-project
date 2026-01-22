@@ -225,7 +225,15 @@ export const App = () => {
 
         <main ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar scroll-smooth">
           {activeTab === 'chat' ? (
-            <ChatSection currentChat={currentChat} error={error} onRegenerate={handleRegenerate} sessionId={activeChatId} onEdit={handleEdit} onVersionChange={handleVersionChange} />
+            <ChatSection 
+              currentChat={currentChat} 
+              error={error} 
+              isLoading={isLoading}
+              onRegenerate={handleRegenerate} 
+              sessionId={activeChatId} 
+              onEdit={handleEdit} 
+              onVersionChange={handleVersionChange} 
+            />
           ) : (
             <div className="w-full max-w-6xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 md:py-8 lg:py-12">
               <div className="mb-4 sm:mb-6 md:mb-8 lg:mb-10 text-center">

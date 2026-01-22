@@ -355,6 +355,19 @@ export const MessageBubble = ({ role, content, timestamp, onRegenerate, isLastAs
             <span className="text-[8px] sm:text-[9px] uppercase font-black tracking-wider sm:tracking-widest">
               {isUser ? 'Taxpayer' : 'AI Assistant'}
             </span>
+            {/* Version navigation UI */}
+            {!isUser && versions && versions.length > 1 && (
+              <div className="flex items-center gap-1 ml-2">
+                <button onClick={() => onVersionChange && onVersionChange(messageIndex, (currentVersionIndex || 0) + 1)} disabled={(currentVersionIndex || 0) >= (versions.length - 1)} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40">
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400">Version {versions.length - (currentVersionIndex || 0)} of {versions.length}</span>
+                <button onClick={() => onVersionChange && onVersionChange(messageIndex, (currentVersionIndex || 0) - 1)} disabled={(currentVersionIndex || 0) <= 0} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+            {/* End version navigation UI */}
             {!isUser && (
               <div className="flex items-center gap-0.5 sm:gap-1">
                 <button

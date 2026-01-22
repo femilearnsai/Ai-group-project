@@ -1,8 +1,10 @@
+
 import React from 'react';
-import { Info } from 'lucide-react';
+import { Info, Loader2 } from 'lucide-react';
 import { MessageBubble } from './MessageBubble.jsx';
 
-export const ChatSection = ({ currentChat, error, onRegenerate, sessionId, onEdit, onVersionChange }) => {
+
+export const ChatSection = ({ currentChat, error, isLoading, onRegenerate, sessionId, onEdit, onVersionChange }) => {
   // Find the index of the last assistant message
   const lastAssistantIndex = currentChat 
     ? currentChat.map((m, i) => (m.role === 'assistant' || m.role === 'ai') ? i : -1).filter(i => i >= 0).pop()
@@ -29,6 +31,12 @@ export const ChatSection = ({ currentChat, error, onRegenerate, sessionId, onEdi
           usedRetrieval={m.used_retrieval}
         />
       ))}
+      {isLoading && (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="animate-spin w-6 h-6 text-emerald-600" />
+          <span className="ml-2 text-emerald-600 font-semibold text-xs">Thinking...</span>
+        </div>
+      )}
       {error && (
         <div className="p-3 sm:p-4 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-800 rounded-xl sm:rounded-2xl flex items-start gap-2 sm:gap-3 text-rose-700 dark:text-rose-300 font-bold text-[11px] sm:text-xs">
           <Info size={14} className="sm:w-4 sm:h-4 flex-shrink-0 mt-0.5" /> 

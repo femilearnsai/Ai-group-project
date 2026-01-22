@@ -467,3 +467,40 @@ def print_setup_instructions():
 # Print setup instructions if Supabase is not configured
 if not supabase:
     print_setup_instructions()
+
+
+# =============================================
+# MESSAGE PERSISTENCE FUNCTIONS
+# =============================================
+def save_message(db: 'SupabaseSession', session_id: str, user_id: str, role: str, content: str, message_index: int, timestamp: str = None):
+    """
+    Save a chat message to the Supabase 'messages' table.
+    """
+    if timestamp is None:
+        from datetime import datetime
+        timestamp = datetime.utcnow().isoformat()
+    data = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "role": role,
+        "content": content,
+        "message_index": message_index,
+        "timestamp": timestamp
+    }
+    response = db.client.table("messages").insert(data).execute()
+    return response
+
+
+def get_messages_for_session(db: 'SupabaseSession', session_id: str):
+    """
+    Retrieve all messages for a given session_id, ordered by message_index.
+    Returns a list of message dicts.
+    """
+    response = db.client.table("messages") \
+        .select("*") \
+        .eq("session_id", session_id) \
+        .order("message_index", desc=False) \
+        .execute()
+    if hasattr(response, 'data'):
+        return response.data
+    return []

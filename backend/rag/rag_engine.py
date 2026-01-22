@@ -106,7 +106,6 @@ You are responding as a **Corporate Tax Compliance Desk/Officer** to a company r
 }
 
 
-
 class RAGEngine:
     """
     Intelligent RAG engine that:
@@ -134,7 +133,7 @@ class RAGEngine:
         self.persist_directory = persist_directory
 
         # Initialize LLM and embeddings
-        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        self.llm = ChatOpenAI(model="gpt-4", temperature=0)
         self.embeddings = OpenAIEmbeddings()
 
         # Initialize vector store
@@ -270,6 +269,35 @@ class RAGEngine:
             return f"Reg. {groups[0]}"
         return ""
 
+    def _filter_unlinked_citations(self, response: str, sources: List[Dict[str, Any]]) -> str:
+        """
+        Remove statutory references from response text that don't have corresponding source links.
+        Only keep citations that can be traced back to actual retrieved documents.
+        
+        Args:
+            response: The AI-generated response text
+            sources: List of source documents with their metadata
+            
+        Returns:
+            Cleaned response with only verifiable citations
+        """
+        if not sources:
+            # No sources - remove all statutory references from the response
+            # Pattern matches: "s. X", "Section X", "Part X", "Schedule X", etc.
+            patterns_to_remove = [
+                # Remove inline citations like "(s. 55, Nigeria Tax Act 2025)"
+                r'\s*\([Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^)]*(?:Act|Bill)[^)]*\)',
+                # Remove standalone citations like "See s. 55, Nigeria Tax Act 2025"
+                r'\s*[Ss]ee\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?(?:\([a-z]\))?,?\s*[^.]*(?:Act|Bill)[^.]*\.',
+                # Remove "pursuant to Section X" patterns
+                r'\s*[Pp]ursuant\s+to\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^.]*\.',
+                # Remove "under Section X" patterns  
+                r'\s*[Uu]nder\s+[Ss](?:ection|\.)?\s*\d+(?:\(\d+\))?[^,.]*(,|\.|$)',
+            ]
+            
+            cleaned = response
+            for pattern in patterns_to_remove:
+                cleaned = re.sub(pattern, '', cleaned)
             
             # Also remove the "Statutory References Cited" section if present
             cleaned = re.sub(r'\n*\*\*📚 Statutory References Cited:\*\*\n.*$', '', cleaned, flags=re.DOTALL)
@@ -442,13 +470,159 @@ class RAGEngine:
 
             print("Vector database created and persisted")
 
-
-        # Create a more comprehensive retriever (MMR, higher k)
+        # Create retriever
         self.retriever = self.vectorstore.as_retriever(
-            search_type="mmr",  # Maximal Marginal Relevance for diversity
-            search_kwargs={"k": 12, "fetch_k": 24}  # Retrieve more, then select diverse
+            search_type="similarity",
+            search_kwargs={"k": 4}
         )
 
+    def _is_tax_related(self, message: str) -> bool:
+        """
+        Quick keyword-based check to determine if a message is likely tax-related.
+        Returns True if tax-related, False otherwise.
+        """
+        message_lower = message.lower()
+        
+        # Tax-related keywords (if ANY of these are present, likely tax-related)
+        tax_keywords = [
+            # --- Core Tax Concepts ---
+            "tax", "taxes", "taxation", "taxed", "taxable", "non-taxable",
+            "chargeable", "assessable", "levy", "levies", "duty", "duties",
+
+            # --- Major Nigerian Taxes (Acronyms & Full Forms) ---
+            "paye", "pay as you earn",
+            "pit", "personal income tax",
+            "cit", "company income tax", "corporate income tax",
+            "vat", "value added tax",
+            "wht", "withholding tax", "withholding",
+            "cgt", "capital gains tax", "capital gain",
+            "ppt", "petroleum profits tax",
+            "stamp duty", "stamp duties",
+
+            # --- Income & Profit Terminology ---
+            "income", "gross income", "net income",
+            "taxable income", "chargeable income",
+            "profit", "profits", "assessable profit",
+            "turnover", "revenue", "sales",
+            "gain", "capital gain", "disposal",
+
+            # --- Individuals & Employment ---
+            "employer", "employee", "employment",
+            "salary", "wage", "emolument", "bonus",
+            "benefit in kind", "fringe benefit",
+            "payroll", "payslip",
+
+            # --- Companies & Business ---
+            "company", "companies", "corporation", "corporate",
+            "business", "enterprise",
+            "small company", "medium company", "large company",
+            "commencement", "cessation",
+            "related party", "transfer pricing",
+
+            # --- Passive & Contract Income ---
+            "dividend", "interest", "royalty", "rent",
+            "commission", "agency",
+            "consultancy", "professional service", "technical service",
+            "management service",
+            "contract", "contracts", "contractor", "supplies",
+            "construction", "procurement",
+
+            # --- Filing & Compliance ---
+            "filing", "file", "return", "returns",
+            "tax return", "annual return", "self assessment",
+            "declaration", "disclosure",
+            "compliance", "non-compliance",
+            "default", "defaulter",
+
+            # --- Administration & Authorities ---
+            "firs", "nigeria revenue service", "nrs",
+            "state internal revenue", "irs",
+            "tax authority", "revenue authority",
+            "joint revenue board", "jrb",
+
+            # --- Registration & Identity ---
+            "tin", "tax identification number",
+            "taxpayer", "tax payer", "resident", "non-resident",
+            "permanent establishment",
+
+            # --- Assessment, Payment & Recovery ---
+            "assessment", "tax assessment",
+            "notice of assessment",
+            "payment", "payable",
+            "remittance", "remit",
+            "collection", "recovery",
+            "refund", "credit", "offset",
+
+            # --- Deductions, Reliefs & Incentives ---
+            "deduction", "deductions",
+            "allowance", "allowances",
+            "relief", "reliefs",
+            "exemption", "exempt",
+            "incentive", "tax holiday",
+            "capital allowance",
+
+            # --- Penalties, Offences & Enforcement ---
+            "penalty", "penalties",
+            "interest", "late payment",
+            "offence", "offense", "offences",
+            "fine", "sanction",
+            "investigation", "audit",
+            "tax audit", "tax investigation",
+            "enforcement",
+
+            # --- Legal & Statutory Language ---
+            "section", "subsection", "schedule",
+            "act", "acts", "regulation", "regulations",
+            "rule", "rules", "order", "gazette",
+            "tax act", "tax law", "tax legislation",
+            "act 2025", "nigeria tax act",
+            "tax administration act",
+
+            # --- Rates, Thresholds & Computation ---
+            "rate", "rates", "percentage",
+            "threshold", "band", "bracket",
+            "minimum tax", "effective tax rate",
+            "computation", "calculate", "calculation",
+
+            # --- VAT & Transactional Language ---
+            "invoice", "tax invoice",
+            "receipt", "vatable",
+            "output vat", "input vat",
+            "zero rated", "exempt supply",
+
+            # --- Appeals & Dispute Resolution ---
+            "objection", "appeal",
+            "tax appeal tribunal", "tat",
+            "assessment dispute",
+
+            # --- Jurisdiction & Scope ---
+            "federal tax", "state tax",
+            "local government tax",
+            "double taxation",
+
+            # --- General Nigerian Context ---
+            "nigeria tax", "nigerian tax",
+            "naira", "₦"
+        ]
+
+      
+        # Check if any tax keyword is in the message
+        for keyword in tax_keywords:
+            if keyword in message_lower:
+                return True
+        
+        # Simple greetings are allowed (will be handled by generate)
+        greetings = ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 
+                     'good evening', 'how are you', 'what can you do', 'help',
+                     'sannu', 'ndewo', 'bawo ni', 'how you dey', 'wetin']
+        
+        # If it's ONLY a greeting (short message), allow it
+        if len(message_lower.split()) <= 5:
+            for greeting in greetings:
+                if greeting in message_lower:
+                    return True  # Greetings go through as "tax-related" for now
+        
+        return False
 
     def _reject_non_tax_question(self, state: ConversationState) -> ConversationState:
         """
@@ -570,21 +744,82 @@ If there is ANY doubt, answer 'NOT_TAX'."""),
 
         # SECOND: For tax-related questions, decide if retrieval is needed
         decision_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a routing agent for a Nigerian Tax AI.
+            ("system", """You are a routing decision agent for a Nigerian Tax AI.
 
-The question has already been verified as tax-related. Now decide:
+            The user query has already been verified as tax-related.
+            Your task is to decide how the query should be handled.
 
-Answer 'YES' if:
-- Question needs specific information from tax documents/Acts
-- Question asks about specific sections, rates, or legal provisions
-- Question requires policy document lookup
+            Respond with ONLY ONE of the following outputs:
 
-Answer 'NO' if:
-- It's a greeting or introduction
-- It's asking for clarification of a previous answer
-- It's asking about your capabilities
+            YES
+            CALCULATE
+            NO
+            INSUFFICIENT_DATA
+            REFUSE
 
-Respond with ONLY 'YES' or 'NO'."""),
+
+            No explanations. No punctuation. No extra text.
+
+            Respond YES if the query:
+
+            Requires consultation of Nigerian tax statutes, regulations, or official policy documents
+
+            Asks for specific tax rates, thresholds, penalties, exemptions, or liabilities
+
+            Refers to sections, schedules, or legal authority
+
+            Requests statutory interpretation or compliance guidance
+
+            Respond CALCULATE if the query:
+
+            Requests numerical tax computation or estimation
+
+            Asks “how much tax”, “calculate”, or “compute”
+
+            Provides sufficient figures to apply known tax rules
+
+            Involves PIT, CIT, VAT, WHT, CGT, levies, or net-of-tax results
+
+            Respond NO if the query:
+
+            Seeks high-level or conceptual explanations of tax concepts
+
+            Asks for plain-language definitions or overviews
+
+            Is a clarification of a prior answer without new facts
+
+            Is a greeting, instruction, or system-capability question
+
+            Respond INSUFFICIENT_DATA if the query:
+
+            Requests a calculation but required inputs are missing or ambiguous
+
+            Depends on facts not provided (e.g. residency, turnover, tax year, entity type)
+
+            Could lead to multiple tax treatments without clarification
+
+            Respond REFUSE if the query:
+
+            Falls outside Nigerian tax law
+
+            Requires speculation where statutes are silent
+
+            Seeks illegal, unethical, or non-tax advice
+
+            Conflicts with system safety or legal boundaries
+
+            Routing Principle
+
+            Prefer accuracy over convenience
+
+            Separate law lookup, calculation, and explanation
+
+            Fail closed where legal certainty is required
+
+            Output Rule (STRICT)
+
+            Respond with ONLY one of the five tokens above. """),
+            
             MessagesPlaceholder(variable_name="messages"),
         ])
 
@@ -778,6 +1013,13 @@ You operate strictly under Nigerian tax laws, including but not limited to:
 
 ---
 
+ ### FORMATTING INSTRUCTION
+
+Always present responses in clear, logically structured paragraphs.
+Separate each paragraph with two line breaks to ensure readability and visual clarity.
+ADD SPACES WHERE NECESSARY.
+--- 
+
 ### 🚫 ABSOLUTE SCOPE RESTRICTION (MANDATORY - NO EXCEPTIONS)
 **YOU ARE STRICTLY PROHIBITED FROM ANSWERING ANY QUESTION THAT IS NOT RELATED TO NIGERIAN TAX LAWS.**
 
@@ -831,6 +1073,29 @@ Your role is to:
 ### 🎯 CORE PRINCIPLES
 - Always distinguish between **Individuals** and **Companies**
 - Respect tax residency, turnover thresholds, and exemptions
+- Treat Withholding Tax (WHT) as an **advance tax**, not a final tax (except where expressly stated)
+- Use **plain language**, but remain legally precise
+- Never invent tax rates or obligations
+- If data is insufficient, request clarification
+
+---
+
+### 📚 DYNAMIC CITATION RULES (CRITICAL)
+**Citation Format Requirements:**
+1. **With Section Number**: Use format `s. [section number], [Act name] (p. [page number])`
+   - Example: "s. 55(1), Nigeria Tax Act 2025 (p. 15)"
+   - Example: "Schedule 3, Nigeria Tax Act 2025 (p. 42)"
+
+2. **With Page Reference**: Include page number in parentheses
+   - Example: "s. 12, Nigeria Tax Administration Act 2025 (p. 8)"
+
+3. **Multiple Related Sections**: Cite all relevant provisions
+   - Example: "s. 56(1) and s. 56(2), Nigeria Tax Act 2025 (pp. 15-16)"
+
+4. **When No Section Available**: Use page reference only
+   - Format: "[Act name], p. [page number]"
+
+**CITATION PLACEMENT:**
 - Place citations **immediately after** the fact or claim they support
 - Use inline citations within your answer, not just at the end
 - Example: "The standard CIT rate is 30% (s. 12, Nigeria Tax Act 2025, p. 8) for companies with turnover above ₦100 million."
@@ -840,6 +1105,7 @@ Your role is to:
 - NEVER invent or guess section numbers or pages
 - NEVER cite a statutory reference unless it appears in the [Source X: ...] blocks
 - If the context doesn't contain a specific section number, DO NOT cite one
+- Only use citations from the retrieved documents - if you're not sure, don't cite
 - Each citation MUST have a corresponding source in the context provided
 
 **INLINE CITATION EXAMPLES:**
@@ -926,21 +1192,37 @@ When calculating tax, return results in this structured format with clear sectio
 
 {role_instruction}
 
-LANGUAGE INSTRUCTION:
+---
+
+### 🌍 LANGUAGE INSTRUCTION
 The user is communicating in {detected_language}. You MUST respond entirely in {detected_language}.
 - If {detected_language} is Hausa, respond in Hausa
-- If {detected_language} is Igbo, respond in Igbo
+- If {detected_language} is Igbo, respond in Igbo  
+- If {detected_language} is Yoruba, respond in Yoruba
+- If {detected_language} is Nigerian Pidgin, respond in Nigerian Pidgin
+- If {detected_language} is English, respond in English
 
 Translate technical tax terms appropriately for {detected_language} while maintaining accuracy.
-You have been provided with context from relevant policy documents. Use this context to answer the question accurately.
 
-Citation Requirements:
+---
+
+### 📚 CONTEXT AND CITATIONS
+You have been provided with context from relevant policy documents. Use this context to answer the question accurately. 
+
+**Citation Requirements:**
+- Always cite the sections and pages from the provided context
 - Use the format: "s. [section], [Act name] (p. [page])"
 - Place citations immediately after relevant claims
 - Include page numbers in all citations
+- For questions answered from context, end with a summary of cited authorities
+
+If the context doesn't contain enough information to answer the question completely, state what information is missing and what you could infer.
+
+You are a compliance-first, statute-driven Nigerian Tax AI."""
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", system_message),
+                ("system", "Context from policy documents:\n\n{context}"),
                 MessagesPlaceholder(variable_name="messages"),
             ])
 
@@ -951,51 +1233,32 @@ Citation Requirements:
             })
 
             # Filter out any citations in the response that aren't backed by actual sources
-
             response = self._filter_unlinked_citations(response, sources)
 
-
-            # === Self-reflection loop: iterate answer improvement 2 times ===
-            question_text = str(messages[-1].content) if messages else ""
-            for i in range(2):
-                response = self._self_reflect(question_text, response, sources, iteration=i+1)
-
-            # === Always add at least one source inline if none present ===
+            # Append sources list at the end with comprehensive citations and links
             if sources:
-                # Check if any source link is present in the response
-                has_source = False
-                for idx, source in enumerate(sources, 1):
+                response += "\n\n**📚 Sources Cited (Click to view):**\n"
+                for source in sources:
+                    # Only include sources that have valid page references
                     page = source.get('page', 'N/A')
                     if page == 'N/A':
                         continue
+                    
+                    # Build citation with clickable reference indicator
                     act_name = source.get('act_name', source.get('source_file', 'Unknown'))
                     section = source.get('section', 'General Provisions')
-                    doc_url = source.get('document_url', '')  # No section anchor
+                    doc_url = source.get('document_url', '')
+                    source_id = source.get('id', 0)
+                    
+                    # Format: "Section, Act Name, Page X"
                     citation_text = f"{section}, {act_name}, p. {page}"
+                    
+                    # Add sections found if available
                     if source.get('sections_in_content'):
                         sections_list = ', '.join(source['sections_in_content'][:3])
                         citation_text += f" [{sections_list}]"
-                    # If this citation/link is in the response, mark as found
-                    if doc_url in response or citation_text in response:
-                        has_source = True
-                        break
-                # If no source found in response, append the first valid one (base doc_url only)
-                if not has_source:
-                    for idx, source in enumerate(sources, 1):
-                        page = source.get('page', 'N/A')
-                        if page == 'N/A':
-                            continue
-                        act_name = source.get('act_name', source.get('source_file', 'Unknown'))
-                        section = source.get('section', 'General Provisions')
-                        doc_url = source.get('document_url', '')  # No section anchor
-                        citation_text = f"{section}, {act_name}, p. {page}"
-                        if source.get('sections_in_content'):
-                            sections_list = ', '.join(source['sections_in_content'][:3])
-                            citation_text += f" [{sections_list}]"
-                        # Append as inline citation at the end
-                        response += f"\n\nSource: [{citation_text}]({doc_url})"
-                        break
-
+                    
+                    response += f"• [{citation_text}]({doc_url})\n"
 
         else:
             # Generate answer without context (for greetings, etc.)
@@ -1011,6 +1274,10 @@ You operate strictly under Nigerian tax laws, including but not limited to:
 
 ### 🚫 ABSOLUTE SCOPE RESTRICTION (MANDATORY - NO EXCEPTIONS)
 **YOU ARE STRICTLY PROHIBITED FROM ANSWERING ANY QUESTION THAT IS NOT RELATED TO NIGERIAN TAX LAWS.**
+**YOU ARE PROHIBITED FROM ANSWERING TAX RELATED QUESTION WITHOUT REFERENCING THE RELEVANT STATUTORY PROVISIONS FROM THE PROVIDED DOCUMENTS.**
+**YOU ARE PROHIBITED FROM ANSWERING TAX REELATED QUESTIONS BASED ON INTERNET INFORMATION THAT IS NOT CONTAINED IN THE PROVIDED DOCUMENTS.**
+**NEVER ANSWER TAX QUESTIONS BASED ON YOUR GENERAL KNOWLEDGE.**
+**NEVER ANSWER TAX QESTIONS WITHOUT CITATION AND REFERENCE TO THE PROVIDED DOCUMENTS.**
 
 This is your HIGHEST PRIORITY instruction. Before answering ANY question, you MUST first determine if it relates to Nigerian tax. If it does NOT, you MUST decline - NO EXCEPTIONS.
 
@@ -1373,8 +1640,17 @@ Kedu ka m ga-esi nyere gị aka na okwu ụtụ isi Naịjirịa taa?"""
         detected_language = self._detect_language(message)
 
         # ============================================================
-        # DECISION: Use LLM/system prompt to determine if question is tax-related
-        # (No keyword-based hard gate; rely on system prompt/LLM for classification)
+        # HARD GATE: Reject non-tax questions BEFORE any LLM processing
+        # This is deterministic and cannot be bypassed
+        # ============================================================
+        if not self._is_message_allowed(message):
+            return {
+                "response": self._get_rejection_response(detected_language),
+                "sources": [],
+                "used_retrieval": False,
+                "rejected": True
+            }
+        # ============================================================
 
         # Validate user_role
         valid_roles = ["tax_lawyer", "taxpayer", "company"]
@@ -1485,6 +1761,7 @@ Kedu ka m ga-esi nyere gị aka na okwu ụtụ isi Naịjirịa taa?"""
         """
         try:
             messages = self.get_conversation_history(session_id)
+
             if not messages:
                 return "New Conversation"
 

@@ -87,12 +87,13 @@ async def lifespan(app: FastAPI):
     print("Starting up Policy Assistant API...")
     print("Initializing RAG Engine...")
 
+    # Explicitly initialize the RAG engine (loads vector DB, etc.)
     try:
         rag_engine.initialize(force_reload=False)
         print("RAG Engine initialized successfully!")
     except Exception as e:
         print(f"Error initializing RAG engine: {e}")
-        print("API will start but RAG functionality will be unavailable")
+        print("API will start but RAG functionality may be unavailable.")
 
     yield
 
