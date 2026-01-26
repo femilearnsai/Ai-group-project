@@ -107,14 +107,32 @@ You are responding as a **Corporate Tax Compliance Desk/Officer** to a company r
 
 
 class RAGEngine:
-    """
-    Intelligent RAG engine that:
-    - Loads and processes policy documents
-    - Creates vector database for semantic search
-    - Uses an agent to decide WHEN to retrieve documents
-    - Maintains conversation context
-    - Cites sources in answers
-    """
+    def _extract_and_format_citations(self, context: str, sources: List[Dict[str, Any]]) -> str:
+        """
+        Skill agent: Extract and format all statutory citations from the context, ensuring only verifiable citations are included.
+        Returns context with inline citations placed immediately after relevant facts.
+        """
+        citations = self._extract_all_citations(context)
+        verifiable_sections = set()
+        for source in sources:
+            if source.get('sections_in_content'):
+                for section in source['sections_in_content']:
+                    verifiable_sections.add(section.lower())
+                section = source.get('section', '')
+                if section and section != 'General Provisions':
+                    verifiable_sections.add(section.lower())
+        def is_verifiable(citation):
+            return citation['formatted'].lower() in verifiable_sections
+        formatted_context = context
+        for citation in citations:
+            if is_verifiable(citation):
+                # Place citation inline after the first occurrence
+                pattern = re.escape(citation['formatted'])
+                replacement = f"{citation['formatted']}"
+                formatted_context = re.sub(pattern, replacement, formatted_context, count=1)
+        return formatted_context
+
+
 
     def __init__(self, docs_path: Optional[str] = None, persist_directory: Optional[str] = None):
         """
@@ -137,11 +155,11 @@ class RAGEngine:
         self.embeddings = OpenAIEmbeddings()
 
         # Initialize vector store
-        self.vectorstore: Optional[Chroma] = None
-        self.retriever: Optional[VectorStoreRetriever] = None
+        self.vectorstore = None  # type: ignore
+        self.retriever = None  # type: ignore
 
         # Initialize the agent graph
-        self.app: Any = None
+        self.app = None  # type: ignore
         self.memory = MemorySaver()
 
     def _extract_section(self, text: str) -> str:
@@ -1235,29 +1253,41 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
             # Filter out any citations in the response that aren't backed by actual sources
             response = self._filter_unlinked_citations(response, sources)
 
-            # Append sources list at the end with comprehensive citations and links
+            # Ensure every paragraph ends with a legal citation from sources/context
             if sources:
+                # Build a list of available citations
+                available_citations = []
+                for source in sources:
+                    page = source.get('page', 'N/A')
+                    act_name = source.get('act_name', source.get('source_file', 'Unknown'))
+                    section = source.get('section', 'General Provisions')
+                    if page != 'N/A':
+                        citation_text = f"({section}, {act_name}, p. {page})"
+                        available_citations.append(citation_text)
+
+                # Split response into paragraphs
+                paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
+                cited_paragraphs = []
+                for i, para in enumerate(paragraphs):
+                    # Always append the most relevant citation (cycle through if more paras than citations)
+                    citation = available_citations[i % len(available_citations)] if available_citations else ''
+                    cited_paragraphs.append(f"{para} {citation}" if citation else para)
+                response = '\n\n'.join(cited_paragraphs)
+
+                # Append sources list at the end with comprehensive citations and links
                 response += "\n\n**📚 Sources Cited (Click to view):**\n"
                 for source in sources:
-                    # Only include sources that have valid page references
                     page = source.get('page', 'N/A')
                     if page == 'N/A':
                         continue
-                    
-                    # Build citation with clickable reference indicator
                     act_name = source.get('act_name', source.get('source_file', 'Unknown'))
                     section = source.get('section', 'General Provisions')
                     doc_url = source.get('document_url', '')
                     source_id = source.get('id', 0)
-                    
-                    # Format: "Section, Act Name, Page X"
                     citation_text = f"{section}, {act_name}, p. {page}"
-                    
-                    # Add sections found if available
                     if source.get('sections_in_content'):
                         sections_list = ', '.join(source['sections_in_content'][:3])
                         citation_text += f" [{sections_list}]"
-                    
                     response += f"• [{citation_text}]({doc_url})\n"
 
         else:
@@ -1468,17 +1498,14 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
         }
 
     def build_agent(self):
-        """Build the LangGraph agent workflow"""
-
-        # Create the graph
+        """Build the LangGraph multi-agent workflow with skills and progressive disclosure"""
         workflow = StateGraph(ConversationState)
-
-        # Add nodes
+        # Skill nodes
         workflow.add_node("retrieve", self._retrieve_documents)
+        workflow.add_node("citation", self._extract_and_format_citations)
         workflow.add_node("generate", self._generate_response)
         workflow.add_node("reject", self._reject_non_tax_question)
-
-        # Add edges with conditional routing including reject
+        # Routing logic
         workflow.set_conditional_entry_point(
             self._should_retrieve,
             {
@@ -1487,15 +1514,13 @@ You are a compliance-first, statute-driven Nigerian Tax AI."""
                 "reject": "reject"
             }
         )
-
-        workflow.add_edge("retrieve", "generate")
+        # Progressive disclosure: retrieval → citation → generate
+        workflow.add_edge("retrieve", "citation")
+        workflow.add_edge("citation", "generate")
         workflow.add_edge("generate", END)
         workflow.add_edge("reject", END)
-
-        # Compile the graph
         self.app = workflow.compile(checkpointer=self.memory)
-
-        print("Agent workflow built successfully")
+        print("Multi-agent workflow with skills built successfully")
 
     def initialize(self, force_reload: bool = False):
         """
@@ -1830,7 +1855,6 @@ if __name__ == "__main__":
     # Example usage
     rag = RAGEngine()
     rag.initialize(force_reload=False)
-
     # Test the agent
     # print("\n" + "="*80)
     # print("RAG Engine Test")

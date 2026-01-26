@@ -1,4 +1,4 @@
-# TaxNG 2025 — Agentic RAG-powered Policy Assistant
+# Zacceus 2025 — Agentic RAG-powered Policy Assistant
 
 ## 🎯 Mission
 

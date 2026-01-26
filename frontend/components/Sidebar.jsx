@@ -27,7 +27,7 @@ export const Sidebar = ({
             <Calculator className="text-white w-4 h-4 sm:w-[18px] sm:h-[18px]" />
           </div>
           <h1 className="text-base sm:text-lg md:text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">
-            TaxNG
+            Zacceus
           </h1>
         </div>
 

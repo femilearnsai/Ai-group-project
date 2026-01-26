@@ -1,6 +1,6 @@
-# Frontend — TaxNG Assistant UI
+# Frontend — Zacceus Assistant UI
 
-This folder contains the React + Vite frontend for the TaxNG assistant. It provides the chat UI, session list sidebar, and statutory calculator.
+This folder contains the React + Vite frontend for the Zacceus assistant. It provides the chat UI, session list sidebar, and statutory calculator.
 
 **Key files**
 - `index.jsx` — main app wiring (chat UI, calculator, session handling)

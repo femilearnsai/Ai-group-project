@@ -1,6 +1,6 @@
-# Backend — TaxNG Policy Assistant
+# Backend — Zacceus Policy Assistant
 
-This folder contains the FastAPI backend and the RAG engine used by the TaxNG assistant.
+This folder contains the FastAPI backend and the RAG engine used by the Zacceus assistant.
 
 **Key responsibilities**:
 - Receive chat requests from the frontend and maintain session metadata
