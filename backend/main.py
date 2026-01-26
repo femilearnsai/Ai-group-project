@@ -1282,7 +1282,7 @@ async def serve_document(filename: str, page: int = None):
     )
 
 
-@app.post("/healthcheck")
+@app.get("/healthcheck")
 async def healthcheck():
     return {"status": "ok"}
 
