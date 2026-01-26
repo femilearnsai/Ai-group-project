@@ -22,6 +22,8 @@ export const Sidebar = ({
       sidebarOpen ? 'translate-x-0' : '-translate-x-full'
     }`}>
       <div className="p-3 sm:p-4 md:p-5 lg:p-6 h-full flex flex-col safe-area-top">
+        {/* Add space above logo and Zacceus */}
+        <div className="mt-4 sm:mt-6 md:mt-8"></div>
         <div className="flex items-center gap-2 mb-4 sm:mb-5 md:mb-6 lg:mb-8">
           <div className="bg-emerald-600 p-1.5 sm:p-2 rounded-lg">
             <Calculator className="text-white w-4 h-4 sm:w-[18px] sm:h-[18px]" />
