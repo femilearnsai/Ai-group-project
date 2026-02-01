@@ -666,6 +666,7 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
                     detail="Access denied: This conversation belongs to another user"
                 )
 
+
     # Track if this is a new session
     is_new_session = session_id not in sessions
 
@@ -675,21 +676,41 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
             "owner_id": user_id,  # Track who owns this session
             "created_at": datetime.now().isoformat(),
             "message_count": 0,
-            "title": "New Conversation"
+            "title": "New Conversation",
+            "guest_prompt_count": 0  # Track guest prompt count
         }
-        
         # Track session for user lookup
         if user_id:
             if user_id not in user_session_map:
                 user_session_map[user_id] = set()
             user_session_map[user_id].add(session_id)
-        
         # If authenticated and this is a brand new session not from login, create it in DB
         if current_user and not request.session_id:
             try:
                 create_user_session(db, user_id, None, session_id)
             except Exception as e:
                 print(f"Warning: Could not save session to database: {e}")
+
+
+    # Restrict unauthenticated users to 3 prompts per session
+    if not current_user:
+        guest_count = sessions[session_id].get("guest_prompt_count", 0)
+        if guest_count >= 3:
+            raise HTTPException(
+                status_code=403,
+                detail="Guest users are limited to 3 prompts. Please sign up or log in to continue."
+            )
+        sessions[session_id]["guest_prompt_count"] = guest_count + 1
+
+    # Restrict authenticated users to 10 prompts per session unless they buy a coffee
+    if current_user:
+        user_prompt_count = sessions[session_id].get("user_prompt_count", 0)
+        if user_prompt_count >= 10:
+            raise HTTPException(
+                status_code=402,
+                detail="You have reached your 10 free prompts. Please buy a coffee to continue using the assistant."
+            )
+        sessions[session_id]["user_prompt_count"] = user_prompt_count + 1
 
     sessions[session_id]["message_count"] += 1
     sessions[session_id]["last_activity"] = datetime.now().isoformat()
