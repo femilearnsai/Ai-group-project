@@ -107,30 +107,93 @@ You are responding as a **Corporate Tax Compliance Desk/Officer** to a company r
 
 
 class RAGEngine:
-    def _extract_and_format_citations(self, context: str, sources: List[Dict[str, Any]]) -> str:
+    def _extract_and_format_citations(self, state: ConversationState) -> ConversationState:
         """
-        Skill agent: Extract and format all statutory citations from the context, ensuring only verifiable citations are included.
-        Returns context with inline citations placed immediately after relevant facts.
+        Skill agent node: Extract and format all statutory citations from the context.
+        Enriches the context with a structured citation summary for each source.
+        Returns updated state with formatted context containing inline citations.
         """
-        citations = self._extract_all_citations(context)
-        verifiable_sections = set()
+        context = state.get("context", "")
+        sources = state.get("sources", [])
+        
+        if not context:
+            return state
+        
+        # Build a comprehensive citation index from all sources
+        citation_index = {}  # Maps citation -> source info
+        all_available_citations = []
+        
         for source in sources:
-            if source.get('sections_in_content'):
-                for section in source['sections_in_content']:
-                    verifiable_sections.add(section.lower())
-                section = source.get('section', '')
-                if section and section != 'General Provisions':
-                    verifiable_sections.add(section.lower())
-        def is_verifiable(citation):
-            return citation['formatted'].lower() in verifiable_sections
-        formatted_context = context
-        for citation in citations:
-            if is_verifiable(citation):
-                # Place citation inline after the first occurrence
-                pattern = re.escape(citation['formatted'])
-                replacement = f"{citation['formatted']}"
-                formatted_context = re.sub(pattern, replacement, formatted_context, count=1)
-        return formatted_context
+            page = source.get('page', 'N/A')
+            act_name = source.get('act_name', 'Unknown')
+            
+            # Get detailed citations if available
+            detailed = source.get('detailed_citations', [])
+            sections = source.get('sections_in_content', [])
+            
+            for citation in detailed:
+                short_form = citation.get('short', '')
+                full_form = citation.get('full', short_form)
+                if short_form:
+                    citation_key = short_form.lower()
+                    citation_index[citation_key] = {
+                        'short': short_form,
+                        'full': full_form,
+                        'act': act_name,
+                        'page': page,
+                        'formatted': f"{short_form}, {act_name} (p. {page})"
+                    }
+                    all_available_citations.append(citation_index[citation_key])
+            
+            # Also add from sections_in_content
+            for section in sections:
+                if section.lower() not in citation_index:
+                    citation_index[section.lower()] = {
+                        'short': section,
+                        'full': section,
+                        'act': act_name,
+                        'page': page,
+                        'formatted': f"{section}, {act_name} (p. {page})"
+                    }
+                    all_available_citations.append(citation_index[section.lower()])
+        
+        # Add a citation summary at the end of the context
+        if all_available_citations:
+            citation_summary = "\n\n---\n📑 AVAILABLE CITATIONS FOR THIS QUERY:\n"
+            citation_summary += "Use these exact references in your response:\n"
+            
+            # Group by type
+            sections = [c for c in all_available_citations if c['short'].startswith('s.') or c['short'].startswith('ss.')]
+            schedules = [c for c in all_available_citations if 'Schedule' in c['short']]
+            parts = [c for c in all_available_citations if c['short'].startswith('Part')]
+            others = [c for c in all_available_citations if c not in sections and c not in schedules and c not in parts]
+            
+            if sections:
+                citation_summary += "\n**Sections:**\n"
+                for c in sections[:15]:  # Limit to 15
+                    citation_summary += f"  • {c['formatted']}\n"
+            
+            if schedules:
+                citation_summary += "\n**Schedules:**\n"
+                for c in schedules[:10]:
+                    citation_summary += f"  • {c['formatted']}\n"
+            
+            if parts:
+                citation_summary += "\n**Parts:**\n"
+                for c in parts[:10]:
+                    citation_summary += f"  • {c['formatted']}\n"
+            
+            if others:
+                citation_summary += "\n**Other References:**\n"
+                for c in others[:10]:
+                    citation_summary += f"  • {c['formatted']}\n"
+            
+            context += citation_summary
+        
+        return {
+            **state,
+            "context": context
+        }
 
 
 
@@ -218,39 +281,55 @@ class RAGEngine:
     def _extract_all_citations(self, text: str) -> List[Dict[str, str]]:
         """
         Extract all section citations from text, returning both section number and context.
-        Returns a list of citation dictionaries with section, subsection, and context.
+        Returns a list of citation dictionaries with section, subsection, paragraph, and schedule references.
+        Enhanced to capture more specific statutory references.
         """
         citations = []
         
-        # Patterns with capture groups for comprehensive extraction
+        # Enhanced patterns with capture groups for comprehensive extraction
         patterns = [
-            # "Section X(Y)(Z)" - captures full nested sections
-            (r'[Ss]ection\s+(\d+)(?:\((\d+)\))?(?:\(([a-z])\))?', 'Section'),
-            # "s. X(Y)(Z)"
-            (r'[Ss]\.\s*(\d+)(?:\((\d+)\))?(?:\(([a-z])\))?', 'Section'),
-            # "Part Roman numerals"
-            (r'[Pp]art\s+([IVXLCDM]+)', 'Part'),
-            # "Schedule X"
-            (r'(?:[Ff]irst|[Ss]econd|[Tt]hird|[Ff]ourth|[Ff]ifth)?\s*[Ss]chedule\s*(\d*)', 'Schedule'),
-            # "Chapter X"
+            # "Section X(Y)(Z)(i)(ii)" - captures full nested sections with sub-paragraphs
+            (r'[Ss]ection\s+(\d+)(?:\s*\((\d+)\))?(?:\s*\(([a-z])\))?(?:\s*\(([ivxlcdm]+)\))?', 'Section'),
+            # "s. X(Y)(Z)(i)" - short form
+            (r'[Ss]\.\s*(\d+)(?:\s*\((\d+)\))?(?:\s*\(([a-z])\))?(?:\s*\(([ivxlcdm]+)\))?', 'Section'),
+            # "ss. X" or "Sections X" - plural sections
+            (r'[Ss]s\.\s*(\d+)(?:\s*[-–]\s*(\d+))?', 'Sections'),
+            # "Part I/II/III" with optional section reference
+            (r'[Pp]art\s+([IVXLCDM]+|\d+)(?:\s*,?\s*[Ss]ection\s+(\d+))?', 'Part'),
+            # "First/Second/Third Schedule" with optional paragraph
+            (r'(First|Second|Third|Fourth|Fifth|Sixth|Seventh)\s+[Ss]chedule(?:\s*,?\s*[Pp]ara(?:graph)?\s*(\d+))?', 'Schedule'),
+            # "Schedule X" with paragraph
+            (r'[Ss]chedule\s+(\d+)(?:\s*,?\s*[Pp]ara(?:graph)?\s*(\d+))?', 'Schedule'),
+            # "Paragraph X(Y)" for schedule paragraphs
+            (r'[Pp]ara(?:graph)?\s+(\d+)(?:\s*\((\d+)\))?(?:\s*\(([a-z])\))?', 'Paragraph'),
+            # "Chapter X" 
             (r'[Cc]hapter\s+([IVXLCDM]+|\d+)', 'Chapter'),
-            # "Article X"
-            (r'[Aa]rticle\s+(\d+)', 'Article'),
-            # "Regulation X"
-            (r'[Rr]egulation\s+(\d+)', 'Regulation'),
+            # "Article X(Y)" 
+            (r'[Aa]rticle\s+(\d+)(?:\s*\((\d+)\))?', 'Article'),
+            # "Regulation X(Y)" 
+            (r'[Rr]egulation\s+(\d+)(?:\s*\((\d+)\))?', 'Regulation'),
+            # "Rule X(Y)"
+            (r'[Rr]ule\s+(\d+)(?:\s*\((\d+)\))?', 'Rule'),
+            # "Item X" for schedule items
+            (r'[Ii]tem\s+(\d+)(?:\s*\(([a-z])\))?', 'Item'),
         ]
         
+        # Search entire text for more comprehensive extraction
         for pattern, section_type in patterns:
-            matches = list(re.finditer(pattern, text[:1000]))
+            matches = list(re.finditer(pattern, text))
             for match in matches:
+                groups = match.groups()
                 citation_dict = {
                     "type": section_type,
-                    "number": match.group(1),
-                    "subsection": match.group(2) if len(match.groups()) > 1 else None,
-                    "subsubsection": match.group(3) if len(match.groups()) > 2 else None,
-                    "formatted": self._format_citation(section_type, match.groups()),
+                    "number": groups[0] if groups else None,
+                    "subsection": groups[1] if len(groups) > 1 and groups[1] else None,
+                    "paragraph": groups[2] if len(groups) > 2 and groups[2] else None,
+                    "subparagraph": groups[3] if len(groups) > 3 and groups[3] else None,
+                    "formatted": self._format_citation(section_type, groups),
+                    "full_reference": self._format_full_citation(section_type, groups),
                     "start": match.start(),
-                    "end": match.end()
+                    "end": match.end(),
+                    "raw_text": match.group(0)
                 }
                 citations.append(citation_dict)
         
@@ -259,7 +338,7 @@ class RAGEngine:
         seen = set()
         unique_citations = []
         for c in citations:
-            key = (c['type'], c['number'], c['subsection'], c['subsubsection'])
+            key = (c['type'], c['number'], c.get('subsection'), c.get('paragraph'), c.get('subparagraph'))
             if key not in seen:
                 seen.add(key)
                 unique_citations.append(c)
@@ -267,24 +346,127 @@ class RAGEngine:
         return unique_citations
     
     def _format_citation(self, section_type: str, groups: tuple) -> str:
-        """Format citation based on type and extracted groups"""
+        """Format citation based on type and extracted groups - short form"""
+        if not groups or not groups[0]:
+            return ""
+            
         if section_type == 'Section':
             base = f"s. {groups[0]}"
-            if groups[1]:
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            if len(groups) > 2 and groups[2]:
+                base += f"({groups[2]})"
+            if len(groups) > 3 and groups[3]:
+                base += f"({groups[3]})"
+            return base
+        elif section_type == 'Sections':
+            if len(groups) > 1 and groups[1]:
+                return f"ss. {groups[0]}-{groups[1]}"
+            return f"ss. {groups[0]}"
+        elif section_type == 'Part':
+            base = f"Part {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f", s. {groups[1]}"
+            return base
+        elif section_type == 'Schedule':
+            if groups[0] and groups[0][0].isupper():  # First, Second, etc.
+                base = f"{groups[0]} Schedule"
+            else:
+                base = f"Schedule {groups[0]}" if groups[0] else "Schedule"
+            if len(groups) > 1 and groups[1]:
+                base += f", para. {groups[1]}"
+            return base
+        elif section_type == 'Paragraph':
+            base = f"para. {groups[0]}"
+            if len(groups) > 1 and groups[1]:
                 base += f"({groups[1]})"
             if len(groups) > 2 and groups[2]:
                 base += f"({groups[2]})"
             return base
-        elif section_type == 'Part':
-            return f"Part {groups[0]}"
-        elif section_type == 'Schedule':
-            return f"Schedule {groups[0]}" if groups[0] else "Schedule"
         elif section_type == 'Chapter':
             return f"Chapter {groups[0]}"
         elif section_type == 'Article':
-            return f"Article {groups[0]}"
+            base = f"Art. {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
         elif section_type == 'Regulation':
-            return f"Reg. {groups[0]}"
+            base = f"Reg. {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
+        elif section_type == 'Rule':
+            base = f"Rule {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
+        elif section_type == 'Item':
+            base = f"Item {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
+        return ""
+    
+    def _format_full_citation(self, section_type: str, groups: tuple) -> str:
+        """Format full formal citation for display - long form"""
+        if not groups or not groups[0]:
+            return ""
+            
+        if section_type == 'Section':
+            base = f"Section {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f", subsection ({groups[1]})"
+            if len(groups) > 2 and groups[2]:
+                base += f", paragraph ({groups[2]})"
+            if len(groups) > 3 and groups[3]:
+                base += f", sub-paragraph ({groups[3]})"
+            return base
+        elif section_type == 'Sections':
+            if len(groups) > 1 and groups[1]:
+                return f"Sections {groups[0]} to {groups[1]}"
+            return f"Section {groups[0]}"
+        elif section_type == 'Part':
+            base = f"Part {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f", Section {groups[1]}"
+            return base
+        elif section_type == 'Schedule':
+            if groups[0] and groups[0][0].isupper():
+                base = f"{groups[0]} Schedule"
+            else:
+                base = f"Schedule {groups[0]}" if groups[0] else "Schedule"
+            if len(groups) > 1 and groups[1]:
+                base += f", Paragraph {groups[1]}"
+            return base
+        elif section_type == 'Paragraph':
+            base = f"Paragraph {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f", sub-paragraph ({groups[1]})"
+            if len(groups) > 2 and groups[2]:
+                base += f"({groups[2]})"
+            return base
+        elif section_type == 'Chapter':
+            return f"Chapter {groups[0]}"
+        elif section_type == 'Article':
+            base = f"Article {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f", paragraph ({groups[1]})"
+            return base
+        elif section_type == 'Regulation':
+            base = f"Regulation {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
+        elif section_type == 'Rule':
+            base = f"Rule {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
+        elif section_type == 'Item':
+            base = f"Item {groups[0]}"
+            if len(groups) > 1 and groups[1]:
+                base += f"({groups[1]})"
+            return base
         return ""
 
     def _filter_unlinked_citations(self, response: str, sources: List[Dict[str, Any]]) -> str:
@@ -853,7 +1035,7 @@ If there is ANY doubt, answer 'NOT_TAX'."""),
     def _retrieve_documents(self, state: ConversationState) -> ConversationState:
         """
         Agent node: Retrieve relevant documents from vector store
-        Extracts dynamic citations with both sections and pages
+        Extracts dynamic citations with sections, subsections, paragraphs, and schedules
         Creates verifiable source links to specific document pages
         """
         messages = state["messages"]
@@ -874,17 +1056,34 @@ If there is ANY doubt, answer 'NOT_TAX'."""),
             page = doc.metadata.get("page", "N/A")
             act_name = doc.metadata.get("act_name", doc.metadata.get("source_file", "Unknown"))
             
-            # Extract all citations from document content
+            # Extract all citations from document content - enhanced extraction
             all_citations = self._extract_all_citations(doc.page_content)
             
-            # Get primary section
+            # Get primary section from metadata
             section = doc.metadata.get("section", "General Provisions")
             
-            # Build citation string with both section and page
-            if all_citations and section != "General Provisions":
-                # Format: "s. 55, Nigeria Tax Act 2025 (p. X)"
-                primary_citation = all_citations[0]['formatted']
-                citation_str = f"{primary_citation}, {act_name} (p. {page})"
+            # Build comprehensive citation string with all statutory references
+            if all_citations:
+                # Group citations by type for better organization
+                sections = [c for c in all_citations if c['type'] in ('Section', 'Sections')]
+                schedules = [c for c in all_citations if c['type'] == 'Schedule']
+                parts = [c for c in all_citations if c['type'] == 'Part']
+                paragraphs = [c for c in all_citations if c['type'] == 'Paragraph']
+                
+                # Build primary citation with most specific reference first
+                citation_parts = []
+                if sections:
+                    citation_parts.append(sections[0]['formatted'])
+                if schedules:
+                    citation_parts.append(schedules[0]['formatted'])
+                if parts:
+                    citation_parts.append(parts[0]['formatted'])
+                
+                if citation_parts:
+                    primary_ref = ", ".join(citation_parts)
+                    citation_str = f"{primary_ref}, {act_name} (p. {page})"
+                else:
+                    citation_str = f"{section}, {act_name} (p. {page})"
             else:
                 citation_str = f"{section}, {act_name} (p. {page})"
             
@@ -892,12 +1091,9 @@ If there is ANY doubt, answer 'NOT_TAX'."""),
             source_file = doc.metadata.get("source_file", "Unknown")
             
             # Generate URL for PDF viewing with page number
-            # URL format: /documents/{filename}#page={page_number}
             from urllib.parse import quote
             encoded_filename = quote(source_file)
             
-            # PDF.js and most browsers support #page=N for page navigation
-            # Also add section anchor if available for more precise linking
             if page != "N/A":
                 doc_url = f"/documents/{encoded_filename}#page={page}"
             else:
@@ -908,26 +1104,46 @@ If there is ANY doubt, answer 'NOT_TAX'."""),
             if all_citations:
                 anchor_id += f"-{all_citations[0]['formatted'].replace(' ', '-').replace('.', '')}"
             
+            # Build detailed citations list with full references
+            detailed_citations = []
+            for c in all_citations[:10]:  # Top 10 citations
+                detailed_citations.append({
+                    "short": c['formatted'],
+                    "full": c.get('full_reference', c['formatted']),
+                    "type": c['type'],
+                    "raw": c.get('raw_text', c['formatted'])
+                })
+            
             source_info = {
-                "id": i,  # Unique ID for this source
+                "id": i,
                 "source_file": source_file,
                 "act_name": act_name,
                 "page": page,
                 "section": section,
-                "sections_in_content": [c['formatted'] for c in all_citations[:5]],  # Top 5 sections
+                "sections_in_content": [c['formatted'] for c in all_citations[:10]],
+                "detailed_citations": detailed_citations,
                 "citation": citation_str,
                 "full_citation": f"{section}, {act_name}, p. {page}",
-                "content_preview": doc.page_content[:200] + "...",
-                "document_url": doc_url,  # Link to view the exact page in the PDF
-                "anchor_id": anchor_id,  # Anchor for precise navigation
-                "statutory_reference": f"{section} of the {act_name}",  # Formal citation
-                "verifiable": True  # Mark as verifiable since it comes from actual document
+                "content_preview": doc.page_content[:300] + "...",
+                "document_url": doc_url,
+                "anchor_id": anchor_id,
+                "statutory_reference": f"{section} of the {act_name}",
+                "verifiable": True,
+                # Add categorized citations for easy access
+                "has_sections": any(c['type'] in ('Section', 'Sections') for c in all_citations),
+                "has_schedules": any(c['type'] == 'Schedule' for c in all_citations),
+                "has_parts": any(c['type'] == 'Part' for c in all_citations),
             }
             sources.append(source_info)
 
-            # Format context with section and page info
+            # Format context with detailed citation information for the LLM
+            citation_summary = ""
+            if all_citations:
+                citation_refs = [f"  • {c['formatted']}" + (f" ({c.get('full_reference', '')})" if c.get('full_reference') != c['formatted'] else "") for c in all_citations[:5]]
+                citation_summary = f"\nStatutory References in this source:\n" + "\n".join(citation_refs)
+            
             context_parts.append(
-                f"[Source {i}: {citation_str}]\n{doc.page_content}\n"
+                f"[Source {i}: {citation_str}]{citation_summary}\n\nContent:\n{doc.page_content}\n"
             )
 
         context = "\n---\n".join(context_parts)
@@ -1098,20 +1314,46 @@ Your role is to:
 
 ---
 
-### 📚 DYNAMIC CITATION RULES (CRITICAL)
-**Citation Format Requirements:**
-1. **With Section Number**: Use format `s. [section number], [Act name] (p. [page number])`
-   - Example: "s. 55(1), Nigeria Tax Act 2025 (p. 15)"
-   - Example: "Schedule 3, Nigeria Tax Act 2025 (p. 42)"
+### 📚 MANDATORY CITATION RULES (CRITICAL - MUST FOLLOW)
 
-2. **With Page Reference**: Include page number in parentheses
-   - Example: "s. 12, Nigeria Tax Administration Act 2025 (p. 8)"
+**EVERY claim, fact, or legal statement MUST include a specific citation.**
 
-3. **Multiple Related Sections**: Cite all relevant provisions
-   - Example: "s. 56(1) and s. 56(2), Nigeria Tax Act 2025 (pp. 15-16)"
+**Citation Hierarchy (use the most specific available):**
+1. **Section + Subsection + Paragraph**: `s. 55(1)(a), Nigeria Tax Act 2025 (p. 15)`
+2. **Section + Subsection**: `s. 55(1), Nigeria Tax Act 2025 (p. 15)`
+3. **Section only**: `s. 55, Nigeria Tax Act 2025 (p. 15)`
+4. **Schedule + Paragraph**: `Third Schedule, para. 5(2), Nigeria Tax Act 2025 (p. 42)`
+5. **Part + Section**: `Part II, s. 12, Nigeria Tax Act 2025 (p. 8)`
 
-4. **When No Section Available**: Use page reference only
-   - Format: "[Act name], p. [page number]"
+**Required Citation Formats:**
+- **Sections**: `s. X(Y)(z)` where X=section, Y=subsection, z=paragraph
+  - Example: "s. 55(1)(a)" means Section 55, subsection 1, paragraph (a)
+- **Schedules**: `[Ordinal] Schedule, para. X(Y)`
+  - Example: "Third Schedule, para. 5(2)" or "Schedule 3, para. 5(2)"
+- **Parts**: `Part [Roman/Number], s. X`
+  - Example: "Part II, s. 15" or "Part 2, s. 15"
+- **Multiple Sections**: `ss. X-Y` or `s. X and s. Y`
+  - Example: "ss. 55-58" or "s. 55(1) and s. 56(2)"
+
+**Citation Placement Rules:**
+- Place citations **IMMEDIATELY AFTER** the fact or claim they support
+- Use inline citations, NOT footnotes or endnotes
+- EVERY paragraph must contain at least ONE specific citation
+- When quoting rates, thresholds, or amounts, cite the EXACT section
+
+**Examples of CORRECT citations:**
+✓ "The PIT rate for income above ₦3.2 million is 24% (s. 55(1)(e), Nigeria Tax Act 2025, p. 15)."
+✓ "Companies with turnover below ₦25 million are exempt (s. 23(1)(a), Nigeria Tax Act 2025, p. 10)."
+✓ "The Third Schedule, para. 5(2) provides the list of exempt items (Nigeria Tax Act 2025, p. 42)."
+✓ "Part II, s. 12(3)(b) governs withholding tax on dividends (Nigeria Tax Act 2025, p. 8)."
+
+**Examples of INCORRECT citations (NEVER use):**
+✗ "According to the Act..." (too vague - cite specific section)
+✗ "The law states..." (no citation)
+✗ "s. 55" (missing subsection if available in context)
+✗ General statements without any citation
+
+**CRITICAL: Look at the [Source X: ...] blocks and the "Statutory References in this source" list to find the EXACT citations available. Only use citations that appear in these sources.**
 
 **CITATION PLACEMENT:**
 - Place citations **immediately after** the fact or claim they support
@@ -1225,16 +1467,27 @@ Translate technical tax terms appropriately for {detected_language} while mainta
 ---
 
 ### 📚 CONTEXT AND CITATIONS
-You have been provided with context from relevant policy documents. Use this context to answer the question accurately. 
+You have been provided with context from relevant policy documents. Each source includes:
+- The Act name and page number
+- A list of statutory references (sections, subsections, schedules, paragraphs) found in that source
 
-**Citation Requirements:**
-- Always cite the sections and pages from the provided context
-- Use the format: "s. [section], [Act name] (p. [page])"
-- Place citations immediately after relevant claims
-- Include page numbers in all citations
-- For questions answered from context, end with a summary of cited authorities
+**MANDATORY Citation Requirements:**
+1. ALWAYS use the most specific citation available (section + subsection + paragraph)
+2. Check the "Statutory References in this source" list for available citations
+3. Use the EXACT format: `s. X(Y)(z), [Act Name] (p. [page])`
+4. Include Schedule and Part references when relevant: `Third Schedule, para. 5, [Act Name] (p. [page])`
+5. EVERY factual claim MUST have an inline citation immediately following it
+6. At the end of your response, provide a **📜 Legal Authorities Cited** summary listing all sections referenced
 
-If the context doesn't contain enough information to answer the question completely, state what information is missing and what you could infer.
+**Example Response Structure:**
+"The Company Income Tax rate for large companies is 30% (s. 23(1), Nigeria Tax Act 2025, p. 12). Small companies with turnover not exceeding ₦25 million are exempt from CIT (s. 23(2)(a), Nigeria Tax Act 2025, p. 12). The calculation methodology is set out in the Third Schedule, para. 3 (Nigeria Tax Act 2025, p. 45).
+
+**📜 Legal Authorities Cited:**
+- s. 23(1), Nigeria Tax Act 2025, p. 12
+- s. 23(2)(a), Nigeria Tax Act 2025, p. 12  
+- Third Schedule, para. 3, Nigeria Tax Act 2025, p. 45"
+
+If the context doesn't contain enough information, state what is missing and provide the closest available reference.
 
 You are a compliance-first, statute-driven Nigerian Tax AI."""
 

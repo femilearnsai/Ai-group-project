@@ -641,7 +641,7 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
         )
 
     db = get_db_session()
-    user_id = current_user["user_id"] if current_user else None
+    user_id = current_user["id"] if current_user else None
     
     # Get or create session ID
     session_id = request.session_id or str(uuid.uuid4())
@@ -721,7 +721,9 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
 
     try:
         # Get response from RAG engine with user role
+        print(f"🔄 Processing chat request: session={session_id}, user_role={user_role}, authenticated={current_user is not None}")
         result = rag_engine.chat(request.message, session_id=session_id, user_role=user_role)
+        print(f"✅ RAG engine returned response successfully")
 
         # Generate title for new sessions after first message
         if is_new_session:
@@ -747,6 +749,10 @@ async def chat(request: ChatRequest, current_user: Optional[Dict[str, Any]] = De
         )
 
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error in chat endpoint: {str(e)}")
+        print(f"❌ Full traceback:\n{error_trace}")
         raise HTTPException(
             status_code=500,
             detail=f"Error processing chat request: {str(e)}"
@@ -767,7 +773,7 @@ async def list_sessions(current_user: Optional[Dict[str, Any]] = Depends(get_cur
     
     # Get ONLY this user's sessions from database
     try:
-        user_sessions = get_user_sessions(db, current_user["user_id"])
+        user_sessions = get_user_sessions(db, current_user["id"])
         result = []
         for session in user_sessions:
             session_id = session.get("session_id")
@@ -790,7 +796,7 @@ async def list_sessions(current_user: Optional[Dict[str, Any]] = Depends(get_cur
 async def get_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Get information about a specific session (with ownership verification)"""
     db = get_db_session()
-    user_id = current_user["user_id"] if current_user else None
+    user_id = current_user["id"] if current_user else None
     
     # SECURITY: Check in-memory ownership first
     if session_id in sessions:
@@ -834,7 +840,7 @@ async def get_conversation_history(session_id: str, current_user: Optional[Dict[
         )
     
     db = get_db_session()
-    user_id = current_user["user_id"] if current_user else None
+    user_id = current_user["id"] if current_user else None
     
     # SECURITY: Check in-memory ownership first
     if session_id in sessions:
@@ -880,7 +886,7 @@ async def get_conversation_history(session_id: str, current_user: Optional[Dict[
 async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Delete a session and its conversation history (with ownership verification)"""
     db = get_db_session()
-    user_id = current_user["user_id"] if current_user else None
+    user_id = current_user["id"] if current_user else None
     
     # SECURITY: Check in-memory ownership first
     if session_id in sessions:
@@ -914,7 +920,7 @@ async def delete_session(session_id: str, current_user: Optional[Dict[str, Any]]
 async def clear_session_history(session_id: str, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Clear conversation history for a session while keeping the session active (with ownership verification)"""
     db = get_db_session()
-    user_id = current_user["user_id"] if current_user else None
+    user_id = current_user["id"] if current_user else None
     
     # SECURITY: Check in-memory ownership first
     if session_id in sessions:
@@ -1081,7 +1087,7 @@ async def regenerate_response(request: RegenerateRequest, current_user: Optional
     session_owner = get_session_owner(db, request.session_id)
     if session_owner:
         if current_user:
-            if session_owner != current_user["user_id"]:
+            if session_owner != current_user["id"]:
                 raise HTTPException(
                     status_code=403, 
                     detail="Access denied: This conversation belongs to another user"
@@ -1161,13 +1167,24 @@ async def reload_documents():
         )
 
     try:
+        print("🔄 Starting document reload...")
         rag_engine.create_vector_database(force_reload=True)
+        print("✅ Documents reloaded successfully")
         return {
             "message": "Documents reloaded and vector database rebuilt successfully",
             "timestamp": datetime.now().isoformat()
         }
 
+    except ValueError as e:
+        print(f"❌ ValueError during reload: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document loading error: {str(e)}"
+        )
     except Exception as e:
+        print(f"❌ Exception during reload: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Error reloading documents: {str(e)}"
